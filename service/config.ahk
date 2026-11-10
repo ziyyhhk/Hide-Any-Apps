@@ -1,9 +1,20 @@
 ; Default config used when file is missing or unreadable.
 GetDefaultConfig() {
     return Map(
-        "schemaVersion", 1,
+        "schemaVersion", 2,
         "serviceState", "running",
+        "hotkeys", GetDefaultHotkeys(),
         "rules", []
+    )
+}
+
+; Global hotkeys. Values use the manager's display format ("Ctrl+Alt+H").
+; Keep the defaults in sync with manager/.../Models/HotkeySettings.cs.
+GetDefaultHotkeys() {
+    return Map(
+        "suspendAll", "Ctrl+Alt+H",
+        "hideForeground", "Ctrl+Alt+Shift+H",
+        "unhideLast", "Ctrl+Alt+Shift+U"
     )
 }
 
@@ -31,10 +42,83 @@ LoadConfig() {
         if !cfg.Has("serviceState")
             cfg["serviceState"] := "running"
         if !cfg.Has("schemaVersion")
-            cfg["schemaVersion"] := 1
+            cfg["schemaVersion"] := 2
         return cfg
     } catch as e {
         ServiceLog("ERROR", "config.json parse failed: " . e.Message)
         return GetDefaultConfig()
+    }
+}
+
+; ==========================================================================
+; Cross-process write lock
+; ==========================================================================
+; The service now rewrites config.json when a hotkey toggles a rule, and the
+; manager writes it when the user edits the UI. Both sides serialize through
+; the same named semaphore (the C# side uses "HideAnyWindow_ConfigLock" too)
+; so a rename never lands in the middle of the other writer's move.
+; A semaphore — not a mutex — because C# async continuations may resume on a
+; different thread, and mutexes are thread-affine.
+
+AcquireConfigLock() {
+    h := DllCall("CreateSemaphoreW", "Ptr", 0, "Int", 1, "Int", 1
+        , "Str", "HideAnyWindow_ConfigLock", "Ptr")
+    if (h = 0)
+        return 0
+    ; 2 s is far longer than either writer needs; time out rather than hang.
+    ; WAIT_OBJECT_0 (0) means we own the semaphore. On timeout close the handle
+    ; and let the caller write unlocked — never release a lock we did not take
+    ; (releasing past the max count would make ReleaseSemaphore fail).
+    if (DllCall("WaitForSingleObject", "Ptr", h, "UInt", 2000, "UInt") != 0) {
+        DllCall("CloseHandle", "Ptr", h)
+        return 0
+    }
+    return h
+}
+
+ReleaseConfigLock(h) {
+    if (h != 0) {
+        DllCall("ReleaseSemaphore", "Ptr", h, "Int", 1, "Ptr", 0)
+        DllCall("CloseHandle", "Ptr", h)
+    }
+}
+
+; SaveConfig(cfg) -> bool
+; Atomic write (temp + rename) under the cross-process lock, matching the
+; manager's ConfigStore.SaveImmediateAsync.
+SaveConfig(cfg) {
+    path := GetConfigPath()
+    tmp := path . ".svc.tmp"
+    hLock := AcquireConfigLock()
+    if (hLock = 0)
+        ServiceLog("WARN", "config lock unavailable — writing unlocked")
+    try {
+        if FileExist(tmp)
+            FileDelete(tmp)
+        FileAppend(JSON.stringify(cfg), tmp, "UTF-8")
+        ; Overwrite = 1 (the manager's File.Move overwrite:true equivalent).
+        ; The manager reads the file too; a read that overlaps this rename can
+        ; make it fail, so retry briefly instead of dropping the hotkey change.
+        moved := false
+        Loop 5 {
+            try {
+                FileMove(tmp, path, 1)
+                moved := true
+                break
+            } catch {
+                Sleep 40
+            }
+        }
+        if (!moved) {
+            ServiceLog("ERROR", "config.json rename failed after retries")
+            try FileDelete(tmp)
+            return false
+        }
+        return true
+    } catch as e {
+        ServiceLog("ERROR", "config.json write failed: " . e.Message)
+        return false
+    } finally {
+        ReleaseConfigLock(hLock)
     }
 }

@@ -3,8 +3,8 @@
 DetectHiddenWindows true
 
 ; No tray icon. AutoHotkey's default tray menu ("Suspend Hotkeys" / "Pause Script" / "Exit")
-; implies this service owns global hotkeys and can be halted from the tray. It owns none,
-; and its lifecycle belongs to the manager. The manager GUI is the only control surface.
+; would expose a second, inconsistent control surface: the service now owns global
+; hotkeys, but its lifecycle still belongs to the manager. Keep the tray hidden.
 #NoTrayIcon
 
 ; AHK v2's static analyzer emits "this local variable appears to never be
@@ -19,6 +19,7 @@ DetectHiddenWindows true
 #Include config.ahk
 #Include registry.ahk
 #Include hider.ahk
+#Include hotkeys.ahk
 
 ; ==========================================================================
 ; Constants and globals — MUST be assigned before the bootstrap below.
@@ -36,6 +37,12 @@ global EventCallbackPtr := 0
 global CurrentConfig := ""
 global LastConfigMTime := ""
 global hServiceMutex := 0
+
+; hwnd -> Map("pid", UInt, "exe", String). EVENT_OBJECT_SHOW fires for every
+; top-level window system-wide; without this cache each event paid for an
+; OpenProcess + QueryFullProcessImageNameW. The PID is re-checked on every
+; lookup so a recycled HWND can never return a stale exe name.
+global ExeCache := Map()
 
 ; ==========================================================================
 ; Bootstrap
@@ -57,7 +64,10 @@ if IsStoppedConfig(CurrentConfig) {
 
 LastConfigMTime := FileExist(GetConfigPath()) ? FileGetTime(GetConfigPath(), "M") : ""
 RegisterWindowHook()
+RegisterHotkeys(CurrentConfig)
 SetTimer(CheckConfigForChanges, 1000)
+; Bound long-run memory: drop windows that closed while we were hiding them.
+SetTimer(PruneDeadState, 30000)
 StartupScan(CurrentConfig)
 ServiceLog("INFO", "service idle — " . HiddenEntries.Length . " windows hidden")
 OnExit(OnServiceExit)
@@ -71,11 +81,27 @@ IsStoppedConfig(cfg) {
 }
 
 GetExeBasenameForHwnd(hwnd) {
+    global ExeCache
     pid := 0
     DllCall("GetWindowThreadProcessId", "Ptr", hwnd, "UInt*", &pid)
     if (pid = 0)
         return ""
 
+    ; Cache hit only when the HWND still belongs to the same process.
+    if ExeCache.Has(hwnd) {
+        cached := ExeCache[hwnd]
+        if (cached["pid"] = pid)
+            return cached["exe"]
+    }
+
+    exe := QueryExeBasename(pid)
+    if (ExeCache.Count > 512)
+        ExeCache.Clear()
+    ExeCache[hwnd] := Map("pid", pid, "exe", exe)
+    return exe
+}
+
+QueryExeBasename(pid) {
     hProc := DllCall("OpenProcess", "UInt", 0x1000, "Int", false, "UInt", pid, "Ptr")
     if (hProc = 0)
         return ""
@@ -91,6 +117,29 @@ GetExeBasenameForHwnd(hwnd) {
     fullPath := StrGet(buf, sizeRef, "UTF-16")
     SplitPath(fullPath, &basename)
     return StrLower(basename)
+}
+
+IsAlreadyHidden(hwnd) {
+    global HiddenEntries
+    for entry in HiddenEntries {
+        if entry["hwnd"] = hwnd
+            return true
+    }
+    return false
+}
+
+; Periodic cleanup so a long-running service does not accumulate state for
+; windows that were closed by the user.
+PruneDeadState() {
+    global ExeCache
+    dead := []
+    for hwnd, entry in ExeCache {
+        if !DllCall("IsWindow", "Ptr", hwnd, "Int")
+            dead.Push(hwnd)
+    }
+    for hwnd in dead
+        ExeCache.Delete(hwnd)
+    PruneHiddenEntries()
 }
 
 FindEnabledRuleForHwnd(cfg, hwnd) {
@@ -109,18 +158,14 @@ FindEnabledRuleForHwnd(cfg, hwnd) {
 }
 
 StartupScan(cfg) {
+    global HidingSuspended
+    if HidingSuspended
+        return
     DetectHiddenWindows false
     ids := WinGetList()
     DetectHiddenWindows true
     for hwnd in ids {
-        already := false
-        for entry in HiddenEntries {
-            if entry["hwnd"] = hwnd {
-                already := true
-                break
-            }
-        }
-        if already
+        if IsAlreadyHidden(hwnd)
             continue
         rule := FindEnabledRuleForHwnd(cfg, hwnd)
         if (rule = "")
@@ -184,6 +229,7 @@ OnServiceExit(*) {
     ; and re-hides the window we just restored. Net effect: nothing
     ; restored. Confirmed in the prior session's log.
     UnregisterWindowHook()
+    UnregisterHotkeys()
     drained := RegistryDrain()
     for entry in drained
         RestoreWindowFromEntry(entry)
@@ -195,23 +241,27 @@ OnServiceExit(*) {
 ; ==========================================================================
 
 WinEventCallback(hHook, event, hwnd, idObject, idChild, thread, time) {
-    global CurrentConfig, OBJID_WINDOW
+    global CurrentConfig, OBJID_WINDOW, HidingSuspended
 
     if (idObject != OBJID_WINDOW || idChild != 0)
         return
     if (hwnd = 0)
         return
-    if (CurrentConfig = "")
+    if (CurrentConfig = "" || HidingSuspended)
+        return
+
+    ; Top-level windows only. EVENT_OBJECT_SHOW also fires for tooltips, IME
+    ; windows, menus and other child objects; filtering here avoids a process
+    ; lookup for events that can never match a rule.
+    if DllCall("GetAncestor", "Ptr", hwnd, "UInt", 2, "Ptr") != hwnd
         return
 
     rule := FindEnabledRuleForHwnd(CurrentConfig, hwnd)
     if (rule = "")
         return
 
-    for entry in HiddenEntries {
-        if entry["hwnd"] = hwnd
-            return
-    }
+    if IsAlreadyHidden(hwnd)
+        return
 
     title := WinGetTitle("ahk_id " . hwnd)
     cls := WinGetClass("ahk_id " . hwnd)
@@ -263,6 +313,10 @@ ApplyNewConfig(oldCfg, newCfg) {
         ServiceLog("INFO", "serviceState=stopped — exiting")
         ExitApp 0
     }
+
+    ; Global and per-rule hotkeys live in config.json, so rebind on every
+    ; applied change. Registration is cheap (RegisterHotKey, no hook).
+    RegisterHotkeys(newCfg)
 
     oldEnabled := Map()
     newEnabled := Map()

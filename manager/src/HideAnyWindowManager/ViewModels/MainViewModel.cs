@@ -11,6 +11,9 @@ public sealed class MainViewModel : ObservableObject
 
     public ObservableCollection<RuleViewModel> Rules { get; } = new();
 
+    /// <summary>Global hotkey settings, shared with SettingsDialog and persisted with every save.</summary>
+    public HotkeySettings Hotkeys { get; set; } = new();
+
     public bool IsServiceRunning
     {
         get => _isServiceRunning;
@@ -38,6 +41,7 @@ public sealed class MainViewModel : ObservableObject
     public void LoadFrom(Config cfg)
     {
         ServiceState = cfg.ServiceState;
+        Hotkeys = cfg.Hotkeys;
         Rules.Clear();
         foreach (var r in cfg.Rules)
             Rules.Add(new RuleViewModel(r) { ServiceRunning = _isServiceRunning });
@@ -45,7 +49,7 @@ public sealed class MainViewModel : ObservableObject
 
     public Config ToConfig()
     {
-        var cfg = new Config { ServiceState = ServiceState };
+        var cfg = new Config { ServiceState = ServiceState, Hotkeys = Hotkeys };
         foreach (var r in Rules) cfg.Rules.Add(r.ToModel());
         return cfg;
     }

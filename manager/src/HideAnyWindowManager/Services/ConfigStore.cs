@@ -5,11 +5,15 @@ using System.Text.Json.Serialization;
 using System.Threading;
 using System.Threading.Tasks;
 using HideAnyWindowManager.Models;
+using HideAnyWindowManager.Util;
 
 namespace HideAnyWindowManager.Services;
 
 public sealed class ConfigStore
 {
+    /// <summary>Cross-process write gate shared with the AHK service (config.ahk).</summary>
+    private const string ConfigLockName = "HideAnyWindow_ConfigLock";
+
     private static readonly JsonSerializerOptions JsonOpts = new()
     {
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
@@ -38,9 +42,13 @@ public sealed class ConfigStore
             return new Config();
         try
         {
-            using var fs = File.OpenRead(_path);
+            // Share everything: the service replaces this file with a rename when
+            // a hotkey toggles a rule, and a stricter share mode would make that
+            // rename fail for the ~milliseconds this read takes.
+            using var fs = new FileStream(_path, FileMode.Open, FileAccess.Read,
+                FileShare.ReadWrite | FileShare.Delete);
             var cfg = await JsonSerializer.DeserializeAsync<Config>(fs, JsonOpts).ConfigureAwait(false);
-            return cfg ?? new Config();
+            return Normalize(cfg ?? new Config());
         }
         catch (JsonException)
         {
@@ -49,6 +57,21 @@ public sealed class ConfigStore
             TryBackupCorruptFile();
             return new Config();
         }
+    }
+
+    /// <summary>Repairs nulls and invalid hotkey strings from hand-edited or older configs.</summary>
+    private static Config Normalize(Config cfg)
+    {
+        cfg.Hotkeys ??= new HotkeySettings();
+        cfg.Hotkeys.SuspendAll = HotkeyText.Normalize(cfg.Hotkeys.SuspendAll);
+        cfg.Hotkeys.HideForeground = HotkeyText.Normalize(cfg.Hotkeys.HideForeground);
+        cfg.Hotkeys.UnhideLast = HotkeyText.Normalize(cfg.Hotkeys.UnhideLast);
+
+        cfg.Rules ??= new();
+        foreach (var rule in cfg.Rules)
+            rule.Hotkey = HotkeyText.Normalize(rule.Hotkey);
+
+        return cfg;
     }
 
     /// <summary>Schedules a save for 200ms after the last call. Subsequent calls supersede
@@ -106,31 +129,50 @@ public sealed class ConfigStore
         {
             Directory.CreateDirectory(Path.GetDirectoryName(_path)!);
             var tmp = _path + ".tmp";
-            using (var fs = File.Create(tmp))
-            {
-                await JsonSerializer.SerializeAsync(fs, cfg, JsonOpts).ConfigureAwait(false);
-                await fs.FlushAsync().ConfigureAwait(false);
-                fs.Flush(flushToDisk: true);   // force bytes to disk before the rename
-            }
 
-            // File.Move with overwrite=true is atomic on the same volume. The AHK service
-            // briefly opens config.json on its ~1Hz poll, which can lock it momentarily;
-            // retry a few times so a transient lock doesn't lose the write.
-            for (int attempt = 0; ; attempt++)
+            // The service can rewrite config.json (hotkey toggles). Serialize
+            // both writers through a shared named semaphore. A semaphore, not
+            // a mutex: async continuations may resume on a different thread,
+            // and mutex ownership is thread-affine.
+            using var gate = new Semaphore(1, 1, ConfigLockName);
+            bool held = false;
+            try
             {
-                try
+                held = gate.WaitOne(TimeSpan.FromSeconds(2));
+                if (!held)
+                    ManagerLog.Write("ConfigStore: config lock timed out — writing anyway");
+
+                using (var fs = File.Create(tmp))
                 {
-                    File.Move(tmp, _path, overwrite: true);
-                    break;
+                    await JsonSerializer.SerializeAsync(fs, cfg, JsonOpts).ConfigureAwait(false);
+                    await fs.FlushAsync().ConfigureAwait(false);
+                    fs.Flush(flushToDisk: true);   // force bytes to disk before the rename
                 }
-                catch (IOException) when (attempt < 4)
+
+                // File.Move with overwrite=true is atomic on the same volume. The AHK service
+                // briefly opens config.json on its ~1Hz poll, which can lock it momentarily;
+                // retry a few times so a transient lock doesn't lose the write.
+                for (int attempt = 0; ; attempt++)
                 {
-                    await Task.Delay(40).ConfigureAwait(false);
+                    try
+                    {
+                        File.Move(tmp, _path, overwrite: true);
+                        break;
+                    }
+                    catch (IOException) when (attempt < 4)
+                    {
+                        await Task.Delay(40).ConfigureAwait(false);
+                    }
+                    catch (UnauthorizedAccessException) when (attempt < 4)
+                    {
+                        await Task.Delay(40).ConfigureAwait(false);
+                    }
                 }
-                catch (UnauthorizedAccessException) when (attempt < 4)
-                {
-                    await Task.Delay(40).ConfigureAwait(false);
-                }
+            }
+            finally
+            {
+                if (held)
+                    gate.Release();
             }
         }
         finally

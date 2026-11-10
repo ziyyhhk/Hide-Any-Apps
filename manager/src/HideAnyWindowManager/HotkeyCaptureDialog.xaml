@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentDialog
+    x:Class="HideAnyWindowManager.HotkeyCaptureDialog"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    Title="Set hotkey"
+    PrimaryButtonText="Save"
+    SecondaryButtonText="Clear"
+    CloseButtonText="Cancel"
+    DefaultButton="Primary"
+    PreviewKeyDown="Dialog_PreviewKeyDown">
+    <StackPanel Width="380" Spacing="10" Padding="0,8,0,0">
+        <TextBlock Text="Press the key combination you want to use."
+                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+        <Border Background="{ThemeResource ControlFillColorDefaultBrush}"
+                BorderBrush="{ThemeResource ControlStrokeColorDefaultBrush}"
+                BorderThickness="1" CornerRadius="6" Padding="16,12">
+            <TextBlock x:Name="ComboText" Text="Press keys&#x2026;" FontSize="20"
+                       FontWeight="SemiBold" HorizontalAlignment="Center"/>
+        </Border>
+        <TextBlock x:Name="ErrorText" Visibility="Collapsed" TextWrapping="Wrap" FontSize="12"
+                   Foreground="{ThemeResource SystemFillColorCriticalBrush}"
+                   AutomationProperties.LiveSetting="Assertive"/>
+        <TextBlock Text="Requires at least one modifier: Ctrl, Alt, Shift or Win."
+                   FontSize="11" TextWrapping="Wrap"
+                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+    </StackPanel>
+</ContentDialog>

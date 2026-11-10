@@ -39,10 +39,11 @@
                   SelectionChanged="RulesList_SelectionChanged">
             <ListView.ItemTemplate>
                 <DataTemplate x:DataType="vm:RuleViewModel">
-                    <Grid Padding="6,8" ColumnSpacing="14">
+                    <Grid Padding="6,8" ColumnSpacing="10">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="Auto"/>
                             <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
                             <ColumnDefinition Width="Auto"/>
                             <ColumnDefinition Width="Auto"/>
                         </Grid.ColumnDefinitions>
@@ -54,11 +55,19 @@
                             <Image Source="{x:Bind Icon, Mode=OneWay}" Visibility="{x:Bind IconVisibility, Mode=OneWay}"/>
                         </Grid>
                         <TextBlock Grid.Column="1" Text="{x:Bind Name}" VerticalAlignment="Center" FontSize="14"/>
-                        <ToggleSwitch Grid.Column="2" IsOn="{x:Bind Enabled, Mode=OneWay}"
+                        <Button Grid.Column="2" Click="HotkeyButton_Click" Padding="6,3" VerticalAlignment="Center"
+                                Background="Transparent" BorderThickness="0"
+                                ToolTipService.ToolTip="Set a hide/unhide hotkey"
+                                AutomationProperties.Name="{x:Bind HotkeyAutomationName}">
+                            <TextBlock Text="{x:Bind HotkeyDisplay, Mode=OneWay}" FontSize="11" MaxWidth="104"
+                                       TextTrimming="CharacterEllipsis"
+                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                        </Button>
+                        <ToggleSwitch Grid.Column="3" IsOn="{x:Bind Enabled, Mode=OneWay}"
                                       IsEnabled="{x:Bind ServiceRunning, Mode=OneWay}"
                                       AutomationProperties.Name="{x:Bind ToggleAutomationName}"
                                       OnContent="" OffContent="" MinWidth="0" Toggled="RuleToggle_Toggled"/>
-                        <Button Grid.Column="3" Click="DeleteRowButton_Click" Padding="6,2" Background="Transparent" BorderThickness="0"
+                        <Button Grid.Column="4" Click="DeleteRowButton_Click" Padding="6,2" Background="Transparent" BorderThickness="0"
                                 AutomationProperties.Name="{x:Bind RemoveAutomationName}" ToolTipService.ToolTip="Remove">
                             <FontIcon Glyph="&#xE74D;" FontSize="14"/>
                         </Button>

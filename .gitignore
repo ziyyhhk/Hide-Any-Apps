@@ -22,6 +22,9 @@ manager/.vs/
 # Local git worktrees
 .worktrees/
 
+# Local build toolchain downloaded for verification (dotnet SDK, AHK portable)
+.tools/
+
 # Distribution build artifacts
 dist/staging/
 dist/HideAnyWindow-Setup.zip

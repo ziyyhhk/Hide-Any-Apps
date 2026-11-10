@@ -45,11 +45,33 @@ Works on apps that resist normal "minimize to tray" tools, including Windows Mag
 
 Open the app and it disappears. Toggle off when you want it back.
 
+## Hotkeys
+
+Everything works from the keyboard once the service is running — the manager
+window does not need to stay open.
+
+| Action | Default |
+|---|---|
+| Hide/show **all** managed apps (pauses auto-hide) | `Ctrl+Alt+H` |
+| Hide the **active** window right now | `Ctrl+Alt+Shift+H` |
+| Unhide the **last** hidden window | `Ctrl+Alt+Shift+U` |
+| Toggle one app on/off | `Ctrl+Alt+1` … `Ctrl+Alt+9` |
+
+- Per-app bindings are assigned automatically when you add an app. Click the
+  shortcut shown in the row to record a different one, or to clear it.
+- **Unhide last** also switches off the rule that hid that window, so it does
+  not vanish again the next time it shows a window.
+- Change the three global shortcuts in **Settings → Hotkeys** (click a shortcut,
+  press the new combination, `Backspace` clears it).
+- Hotkeys are registered by the service with `RegisterHotKey`, so they cost no
+  CPU while idle and work even when the manager is closed.
+
 ## Settings
 
-The gear icon in the toolbar opens **Settings**. One option for now:
+The gear icon in the toolbar opens **Settings**:
 
 - **Start at logon**: when on, the service auto-launches when you sign in to Windows. Off by default.
+- **Hotkeys**: rebind or clear the three global shortcuts.
 
 ## Uninstall
 
@@ -85,8 +107,26 @@ Output: `dist\HideAnyWindow-Setup.exe`.
 
 Two pieces, one shared config file.
 
-- **Service** (`service/`): a compiled AutoHotkey v2 script with a UIAccess manifest. Watches for windows of configured apps via `SetWinEventHook`, hides matches with `WinHide` plus `ITaskbarList::DeleteTab`. Holds a named mutex so the manager can detect liveness.
+- **Service** (`service/`): a compiled AutoHotkey v2 script with a UIAccess manifest. Watches for windows of configured apps via `SetWinEventHook`, hides matches with `WinHide` plus `ITaskbarList::DeleteTab`. Registers the global hotkeys. Holds a named mutex so the manager can detect liveness.
 - **Manager** (`manager/`): a WinUI 3 / .NET 8 desktop app. Reads and writes `%APPDATA%\HideAnyWindow\config.json`. Talks to the service through that file plus the named mutex.
+
+Hotkey toggles are the one case where the service writes `config.json` (so a
+rule you disable from the keyboard stays disabled after a restart). Both
+processes serialize writes through a named semaphore, and the manager watches
+the file so its UI reflects changes made by a hotkey.
+
+### Performance
+
+- The window-event callback only looks at top-level windows, so tooltips, IME
+  windows and menus never pay for a process lookup.
+- Process → exe lookups are cached per HWND and revalidated by PID, so a burst
+  of window events no longer means a burst of `OpenProcess` calls.
+- State for closed windows is pruned every 30 seconds, keeping memory flat
+  during long sessions.
+- Hotkeys use `RegisterHotKey` (no keyboard hook), so they do not add
+  per-keystroke CPU.
+- Closing the manager leaves only the small AHK service resident; the manager's
+  WinUI memory is released until you open it again.
 
 ## Security note
 

@@ -1,20 +1,56 @@
+<?xml version="1.0" encoding="utf-8" ?>
 <ContentDialog
     x:Class="HideAnyWindowManager.SettingsDialog"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     Title="Settings"
     CloseButtonText="Close"
-    DefaultButton="Close">
-    <Grid Width="400" Padding="0,8,0,0">
-        <Grid.ColumnDefinitions>
-            <ColumnDefinition Width="*"/>
-            <ColumnDefinition Width="Auto"/>
-        </Grid.ColumnDefinitions>
-        <TextBlock x:Name="AutostartLabel" Text="Start service at logon" FontSize="14" VerticalAlignment="Center"/>
-        <ToggleSwitch Grid.Column="1" x:Name="AutostartSwitch"
-                      OnContent="" OffContent="" MinWidth="0"
-                      AutomationProperties.Name="Start service at logon"
-                      AutomationProperties.LabeledBy="{Binding ElementName=AutostartLabel}"
-                      Toggled="AutostartSwitch_Toggled"/>
-    </Grid>
+    DefaultButton="Close"
+    PreviewKeyDown="Dialog_PreviewKeyDown">
+    <StackPanel Width="420" Spacing="6" Padding="0,8,0,0">
+        <Grid ColumnSpacing="12">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+            <TextBlock x:Name="AutostartLabel" Text="Start service at logon" FontSize="14" VerticalAlignment="Center"/>
+            <ToggleSwitch Grid.Column="1" x:Name="AutostartSwitch"
+                          OnContent="" OffContent="" MinWidth="0"
+                          AutomationProperties.Name="Start service at logon"
+                          AutomationProperties.LabeledBy="{Binding ElementName=AutostartLabel}"
+                          Toggled="AutostartSwitch_Toggled"/>
+        </Grid>
+
+        <TextBlock Text="Hotkeys" FontSize="16" FontWeight="SemiBold" Margin="0,14,0,0"/>
+        <TextBlock Text="Click a shortcut, then press the new keys. Backspace clears it. Hotkeys work while the service is running."
+                   FontSize="11" TextWrapping="Wrap"
+                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+
+        <Grid ColumnSpacing="12" RowSpacing="8" Margin="0,6,0,0">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+            </Grid.RowDefinitions>
+
+            <TextBlock Text="Hide/show all apps (pause)" VerticalAlignment="Center"/>
+            <Button Grid.Column="1" x:Name="SuspendAllButton" Click="HotkeyButton_Click" MinWidth="150"/>
+
+            <TextBlock Grid.Row="1" Text="Hide active window" VerticalAlignment="Center"/>
+            <Button Grid.Row="1" Grid.Column="1" x:Name="HideForegroundButton" Click="HotkeyButton_Click" MinWidth="150"/>
+
+            <TextBlock Grid.Row="2" Text="Unhide last window" VerticalAlignment="Center"/>
+            <Button Grid.Row="2" Grid.Column="1" x:Name="UnhideLastButton" Click="HotkeyButton_Click" MinWidth="150"/>
+
+            <TextBlock Grid.Row="3" Grid.ColumnSpan="2" x:Name="HotkeyErrorText"
+                       Visibility="Collapsed" TextWrapping="Wrap" FontSize="12"
+                       Foreground="{ThemeResource SystemFillColorCriticalBrush}"
+                       AutomationProperties.LiveSetting="Assertive"/>
+        </Grid>
+    </StackPanel>
 </ContentDialog>

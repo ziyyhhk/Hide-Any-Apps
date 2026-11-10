@@ -63,6 +63,29 @@ SaveHiddenJson() {
     FileMove(tmp, path)
 }
 
+; Drops entries whose window has been destroyed. Windows can close while the
+; service is running; without this the in-memory list (and hidden.json) grows
+; for the lifetime of the process.
+PruneHiddenEntries() {
+    global HiddenEntries
+    if (HiddenEntries.Length = 0)
+        return 0
+    keep := []
+    removed := 0
+    for entry in HiddenEntries {
+        if DllCall("IsWindow", "Ptr", entry["hwnd"], "Int")
+            keep.Push(entry)
+        else
+            removed += 1
+    }
+    if (removed > 0) {
+        HiddenEntries := keep
+        SaveHiddenJson()
+        ServiceLog("INFO", "pruned " . removed . " dead hidden-window entries")
+    }
+    return removed
+}
+
 ; Returns array of entries from disk. Does NOT populate HiddenEntries — caller decides.
 LoadHiddenJson() {
     path := GetHiddenJsonPath()

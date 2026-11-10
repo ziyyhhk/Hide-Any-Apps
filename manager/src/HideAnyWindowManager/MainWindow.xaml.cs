@@ -1,5 +1,7 @@
 using System;
+using System.IO;
 using System.Linq;
+using System.Threading.Tasks;
 using HideAnyWindowManager.Models;
 using HideAnyWindowManager.Services;
 using HideAnyWindowManager.Util;
@@ -19,6 +21,9 @@ public sealed partial class MainWindow : Window
     private HideAnyWindowManager.Util.WindowMinSize? _minSize;
     private Windows.UI.ViewManagement.UISettings? _uiSettings;
 
+    private FileSystemWatcher? _configWatcher;
+    private DateTime _suppressExternalReloadUntilUtc = DateTime.MinValue;
+
     public MainWindow()
     {
         InitializeComponent();
@@ -34,6 +39,7 @@ public sealed partial class MainWindow : Window
         UpdateEmptyState();
         _ = LoadAsync();
         StartStatusWatch();
+        StartConfigWatch();
         HookThemeChange();
         Closed += OnClosed;
     }
@@ -44,6 +50,7 @@ public sealed partial class MainWindow : Window
     private void OnClosed(object sender, WindowEventArgs args)
     {
         _statusTimer?.Stop();
+        _configWatcher?.Dispose();
         // Guarantee a debounced save still inside its 200ms window is written before exit.
         try { App.ConfigStore.FlushPendingAsync().GetAwaiter().GetResult(); }
         catch { /* best effort on shutdown */ }
@@ -170,10 +177,10 @@ public sealed partial class MainWindow : Window
 
     private void RefreshStatus()
     {
-        // Only the mutex needs polling: the service never writes config.json, so the
-        // in-memory ServiceState (set at load and by the Start/Stop button) is the source
-        // of truth. Re-reading the file every second risked a read/write race and crashed
-        // an async-void method on a transient file lock.
+        // Only the mutex needs polling here: the service normally leaves
+        // config.json alone, but a hotkey toggle now rewrites a rule's
+        // enabled flag. Those changes arrive through the file watcher, not
+        // this timer, so poll just the cheap mutex check.
         bool mutex = App.ServiceController.IsServiceRunning();
         bool effective = mutex && ViewModel.ServiceState == "running";
 
@@ -200,9 +207,176 @@ public sealed partial class MainWindow : Window
         rvm.Icon = await IconHelper.LoadIconAsync(rvm.Path);
     }
 
+    // ------------------------------------------------------------------
+    // External config changes
+    // ------------------------------------------------------------------
+    // The service now owns the per-app hotkey toggles, so config.json can be
+    // rewritten by another process while this window is open. Watch the file
+    // and mirror those changes into the UI instead of clobbering them with
+    // the next save.
+
+    private void StartConfigWatch()
+    {
+        try
+        {
+            var path = App.ConfigStore.ConfigPath;
+            var dir = Path.GetDirectoryName(path);
+            if (string.IsNullOrEmpty(dir)) return;
+            Directory.CreateDirectory(dir);
+
+            _configWatcher = new FileSystemWatcher(dir, Path.GetFileName(path))
+            {
+                NotifyFilter = NotifyFilters.LastWrite | NotifyFilters.FileName
+                             | NotifyFilters.Size | NotifyFilters.CreationTime,
+                EnableRaisingEvents = true,
+            };
+            _configWatcher.Changed += OnConfigFileChanged;
+            _configWatcher.Created += OnConfigFileChanged;
+            _configWatcher.Renamed += OnConfigFileChanged;
+        }
+        catch (Exception ex)
+        {
+            ManagerLog.Write($"config watcher failed: {ex.GetType().Name}: {ex.Message}");
+        }
+    }
+
+    private void OnConfigFileChanged(object sender, FileSystemEventArgs e)
+    {
+        // Our own atomic save raises Changed/Created/Renamed too. Skip those,
+        // but re-check after the window in case a real external write lands
+        // while our save is settling.
+        if (DateTime.UtcNow < _suppressExternalReloadUntilUtc)
+        {
+            _ = RecheckConfigAfterAsync(_suppressExternalReloadUntilUtc - DateTime.UtcNow);
+            return;
+        }
+
+        DispatcherQueue.TryEnqueue(async () =>
+        {
+            try { await ReloadIfChangedAsync(); }
+            catch (Exception ex)
+            {
+                ManagerLog.Write($"external reload failed: {ex.GetType().Name}: {ex.Message}");
+            }
+        });
+    }
+
+    private async Task RecheckConfigAfterAsync(TimeSpan delay)
+    {
+        try
+        {
+            int ms = Math.Clamp((int)delay.TotalMilliseconds, 0, 5000);
+            await Task.Delay(ms);
+            DispatcherQueue.TryEnqueue(async () =>
+            {
+                try { await ReloadIfChangedAsync(); }
+                catch (Exception ex)
+                {
+                    ManagerLog.Write($"external reload failed: {ex.GetType().Name}: {ex.Message}");
+                }
+            });
+        }
+        catch { /* window shutting down */ }
+    }
+
+    private async Task ReloadIfChangedAsync()
+    {
+        var cfg = await App.ConfigStore.LoadAsync();
+        if (!ConfigDiffersFromViewModel(cfg))
+            return;
+
+        var selectedId = ViewModel.SelectedRule?.Id;
+        ViewModel.LoadFrom(cfg);
+        foreach (var rvm in ViewModel.Rules)
+            _ = LoadIconForRuleAsync(rvm);
+
+        if (selectedId != null)
+            RulesList.SelectedItem = ViewModel.Rules.FirstOrDefault(r => r.Id == selectedId);
+        else
+            ViewModel.SelectedRule = null;
+
+        ManagerLog.Write("config.json changed externally — reloaded UI");
+    }
+
+    private bool ConfigDiffersFromViewModel(Config cfg)
+    {
+        if (!string.Equals(cfg.ServiceState, ViewModel.ServiceState, StringComparison.Ordinal))
+            return true;
+        if (cfg.Rules.Count != ViewModel.Rules.Count)
+            return true;
+
+        var uiHotkeys = ViewModel.Hotkeys;
+        if (!string.Equals(cfg.Hotkeys.SuspendAll, uiHotkeys.SuspendAll, StringComparison.OrdinalIgnoreCase)
+            || !string.Equals(cfg.Hotkeys.HideForeground, uiHotkeys.HideForeground, StringComparison.OrdinalIgnoreCase)
+            || !string.Equals(cfg.Hotkeys.UnhideLast, uiHotkeys.UnhideLast, StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        for (int i = 0; i < cfg.Rules.Count; i++)
+        {
+            var disk = cfg.Rules[i];
+            var ui = ViewModel.Rules[i];
+            if (disk.Id != ui.Id
+                || disk.Enabled != ui.Enabled
+                || !string.Equals(disk.Hotkey, ui.Hotkey, StringComparison.Ordinal))
+                return true;
+        }
+        return false;
+    }
+
+    private void SuppressExternalReload(int milliseconds = 1500)
+        => _suppressExternalReloadUntilUtc = DateTime.UtcNow.AddMilliseconds(milliseconds);
+
     private void RulesList_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         ViewModel.SelectedRule = RulesList.SelectedItem as RuleViewModel;
+    }
+
+    private async void HotkeyButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button button || button.DataContext is not RuleViewModel rvm)
+            return;
+
+        var ruleId = rvm.Id;
+        var dialog = new HotkeyCaptureDialog(rvm.Hotkey,
+            candidate => ValidateRuleHotkey(candidate, ruleId))
+        {
+            XamlRoot = ((FrameworkElement)Content).XamlRoot,
+            RequestedTheme = RootGrid.RequestedTheme,
+        };
+
+        var result = await dialog.ShowAsync();
+        if (result == ContentDialogResult.None)
+            return;
+
+        // The config watcher may have rebuilt the rows while the dialog was open
+        // (a hotkey toggle in the service). Apply to the current row, not the old
+        // view-model instance, or the edit would be dropped on the next save.
+        var target = ViewModel.Rules.FirstOrDefault(r => r.Id == ruleId);
+        if (target == null)
+        {
+            ManagerLog.Write($"hotkey ruleId={ruleId} vanished before apply");
+            return;
+        }
+
+        target.Hotkey = result == ContentDialogResult.Primary ? dialog.Hotkey : "";
+        ManagerLog.Write($"hotkey ruleId={ruleId} -> '{target.Hotkey}'");
+        SaveDebounced();
+    }
+
+    private string? ValidateRuleHotkey(string candidate, string ruleId)
+    {
+        foreach (var rule in ViewModel.Rules)
+        {
+            if (rule.Id != ruleId && HotkeyText.Conflicts(candidate, rule.Hotkey))
+                return $"Already used by {rule.Name}.";
+        }
+        if (HotkeyText.Conflicts(candidate, ViewModel.Hotkeys.SuspendAll))
+            return "Already used by Hide/show all apps.";
+        if (HotkeyText.Conflicts(candidate, ViewModel.Hotkeys.HideForeground))
+            return "Already used by Hide active window.";
+        if (HotkeyText.Conflicts(candidate, ViewModel.Hotkeys.UnhideLast))
+            return "Already used by Unhide last window.";
+        return null;
     }
 
     private void RuleToggle_Toggled(object sender, RoutedEventArgs e)
@@ -246,6 +420,9 @@ public sealed partial class MainWindow : Window
                 Path = proc.FullPath,
                 Name = proc.Name,
                 Enabled = false,
+                // Give every new rule a sensible default bind (Ctrl+Alt+1..9)
+                // so the feature is discoverable; the user can rebind or clear it.
+                Hotkey = HotkeyText.NextFreeSlot(UsedHotkeys()),
             })
             { ServiceRunning = ViewModel.IsServiceRunning };
             ViewModel.Rules.Add(newRvm);
@@ -254,9 +431,18 @@ public sealed partial class MainWindow : Window
         }
     }
 
+    private System.Collections.Generic.IEnumerable<string?> UsedHotkeys()
+    {
+        foreach (var rule in ViewModel.Rules)
+            yield return rule.Hotkey;
+        yield return ViewModel.Hotkeys.SuspendAll;
+        yield return ViewModel.Hotkeys.HideForeground;
+        yield return ViewModel.Hotkeys.UnhideLast;
+    }
+
     private async void SettingsButton_Click(object sender, RoutedEventArgs e)
     {
-        var dlg = new SettingsDialog
+        var dlg = new SettingsDialog(ViewModel, SaveDebounced)
         {
             XamlRoot = ((FrameworkElement)Content).XamlRoot,
             RequestedTheme = RootGrid.RequestedTheme,
@@ -274,6 +460,7 @@ public sealed partial class MainWindow : Window
             // Process not running -> ensure state is "running" then launch.
             cfg.ServiceState = "running";
             ViewModel.ServiceState = "running";
+            SuppressExternalReload(2500);
             await App.ConfigStore.SaveImmediateAsync(cfg);
             ManagerLog.Write("ServiceButton: launching (mutex absent, set state=running)");
             if (!App.ServiceController.TryStartService())
@@ -298,6 +485,7 @@ public sealed partial class MainWindow : Window
             // exits, so it leaves no resident process behind.
             cfg.ServiceState = "stopped";
             ViewModel.ServiceState = "stopped";
+            SuppressExternalReload(2500);
             await App.ConfigStore.SaveImmediateAsync(cfg);
             ManagerLog.Write("ServiceButton: stopping (mutex held, state -> stopped; service will exit)");
         }
@@ -309,6 +497,7 @@ public sealed partial class MainWindow : Window
         var cfg = ViewModel.ToConfig();
         var ruleSummary = string.Join(", ", cfg.Rules.Select(r => $"{r.Id}={(r.Enabled ? "on" : "off")}"));
         ManagerLog.Write($"SaveDebounced state={cfg.ServiceState} rules=[{ruleSummary}]");
+        SuppressExternalReload();
         App.ConfigStore.ScheduleSave(cfg);
     }
 }

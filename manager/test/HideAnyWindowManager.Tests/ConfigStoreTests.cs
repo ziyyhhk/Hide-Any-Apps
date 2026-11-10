@@ -15,7 +15,23 @@ public class ConfigStoreTests
         var cfg = new Config
         {
             ServiceState = "stopped",
-            Rules = { new Rule { Id = "magnify-exe", Exe = "magnify.exe", Name = "Magnifier", Enabled = true } }
+            Hotkeys = new HotkeySettings
+            {
+                SuspendAll = "Ctrl+Alt+H",
+                HideForeground = "Ctrl+Alt+Shift+H",
+                UnhideLast = "Ctrl+Alt+Shift+U",
+            },
+            Rules =
+            {
+                new Rule
+                {
+                    Id = "magnify-exe",
+                    Exe = "magnify.exe",
+                    Name = "Magnifier",
+                    Enabled = true,
+                    Hotkey = "Ctrl+Alt+1",
+                },
+            },
         };
         await store.SaveImmediateAsync(cfg);
 
@@ -24,6 +40,10 @@ public class ConfigStoreTests
         Assert.Single(loaded.Rules);
         Assert.Equal("magnify.exe", loaded.Rules[0].Exe);
         Assert.True(loaded.Rules[0].Enabled);
+        Assert.Equal("Ctrl+Alt+1", loaded.Rules[0].Hotkey);
+        Assert.Equal("Ctrl+Alt+H", loaded.Hotkeys.SuspendAll);
+        Assert.Equal("Ctrl+Alt+Shift+H", loaded.Hotkeys.HideForeground);
+        Assert.Equal("Ctrl+Alt+Shift+U", loaded.Hotkeys.UnhideLast);
 
         File.Delete(path);
     }
@@ -37,5 +57,37 @@ public class ConfigStoreTests
         var loaded = await store.LoadAsync();
         Assert.Equal("running", loaded.ServiceState);
         Assert.Empty(loaded.Rules);
+        Assert.Equal("Ctrl+Alt+H", loaded.Hotkeys.SuspendAll);
+    }
+
+    [Fact]
+    public async Task NormalizesHotkeysAndRepairsOlderConfig()
+    {
+        // Schema 1: no "hotkeys" object, and a rule with a non-canonical chord.
+        var path = Path.Combine(Path.GetTempPath(), $"haw-old-{System.Guid.NewGuid():N}.json");
+        try
+        {
+            await File.WriteAllTextAsync(path, """
+                {
+                  "schemaVersion": 1,
+                  "serviceState": "running",
+                  "rules": [
+                    { "id": "magnify-exe", "exe": "magnify.exe", "name": "Magnifier",
+                      "enabled": false, "hotkey": "shift+ctrl+alt+2" }
+                  ]
+                }
+                """);
+
+            var loaded = await new ConfigStore(path).LoadAsync();
+
+            // Missing global hotkeys fall back to the model defaults...
+            Assert.Equal("Ctrl+Alt+H", loaded.Hotkeys.SuspendAll);
+            // ...and supplied chords are canonicalized so both processes agree.
+            Assert.Equal("Ctrl+Alt+Shift+2", loaded.Rules[0].Hotkey);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
     }
 }
