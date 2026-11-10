@@ -72,6 +72,34 @@ RunTests() {
     Check("default config has hotkeys map"
         , Type(cfg["hotkeys"]) = "Map"
         && cfg["hotkeys"]["suspendAll"] = "Ctrl+Alt+H")
+
+    ; --- PrepareConfigForJson: rule.enabled must be a real JSON boolean ---
+    ; The manager's System.Text.Json rejects 0/1 for bool; a service write with
+    ; numeric booleans made the app look corrupt and emptied the rule list.
+    cfg := Map("schemaVersion", 2, "rules", [
+        Map("id", "on-num", "enabled", 1),
+        Map("id", "off-num", "enabled", 0),
+        Map("id", "off-str", "enabled", "false"),
+        Map("id", "on-cv", "enabled", JSON.true),
+        Map("id", "missing"),
+    ])
+    serialized := JSON.stringify(PrepareConfigForJson(cfg))
+    Check("serializes enabled 1 as true", RegExMatch(serialized, '"enabled"\s*:\s*true'))
+    Check("serializes enabled 0 as false", RegExMatch(serialized, '"enabled"\s*:\s*false'))
+    Check("never writes numeric enabled values", !RegExMatch(serialized, '"enabled"\s*:\s*[01]'))
+    Check("missing enabled defaults to true", RegExMatch(serialized, '"enabled"\s*:\s*true(?=[^}]*"id"\s*:\s*"missing")'))
+    Check("does not mutate live config", cfg["rules"][2]["enabled"] = 0
+        && cfg["rules"][1]["enabled"] = 1)
+
+    ; --- IsConfigEnabled accepts every representation the config can contain ---
+    Check("IsConfigEnabled: 1", IsConfigEnabled(1))
+    Check("IsConfigEnabled: 0", !IsConfigEnabled(0))
+    Check("IsConfigEnabled: true", IsConfigEnabled(true))
+    Check("IsConfigEnabled: false", !IsConfigEnabled(false))
+    Check("IsConfigEnabled: JSON.true", IsConfigEnabled(JSON.true))
+    Check("IsConfigEnabled: JSON.false", !IsConfigEnabled(JSON.false))
+    Check("IsConfigEnabled: 'false'", !IsConfigEnabled("false"))
+    Check("IsConfigEnabled: '' uses default", IsConfigEnabled("", true))
 }
 
 try {

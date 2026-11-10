@@ -95,7 +95,7 @@ SaveConfig(cfg) {
     try {
         if FileExist(tmp)
             FileDelete(tmp)
-        FileAppend(JSON.stringify(cfg), tmp, "UTF-8")
+        FileAppend(JSON.stringify(PrepareConfigForJson(cfg)), tmp, "UTF-8")
         ; Overwrite = 1 (the manager's File.Move overwrite:true equivalent).
         ; The manager reads the file too; a read that overlaps this rename can
         ; make it fail, so retry briefly instead of dropping the hotkey change.
@@ -121,4 +121,46 @@ SaveConfig(cfg) {
     } finally {
         ReleaseConfigLock(hLock)
     }
+}
+
+; AutoHotkey has no native boolean type: JSON.parse turns true/false into 1/0,
+; and JSON.stringify writes plain integers back out. The manager (and any other
+; JSON consumer) expects a real boolean for rule.enabled, so convert to
+; JSON.true / JSON.false just before serializing. Returns a shallow copy so the
+; live in-memory config keeps its plain 1/0 values.
+PrepareConfigForJson(cfg) {
+    out := Map()
+    for key, value in cfg {
+        if (key = "rules" && value is Array) {
+            rules := []
+            for rule in value {
+                if !(rule is Map) {
+                    rules.Push(rule)
+                    continue
+                }
+                copy := Map()
+                for k, v in rule
+                    copy[k] := v
+                enabled := copy.Has("enabled") ? copy["enabled"] : true
+                copy["enabled"] := IsConfigEnabled(enabled) ? JSON.true : JSON.false
+                rules.Push(copy)
+            }
+            out[key] := rules
+        } else {
+            out[key] := value
+        }
+    }
+    return out
+}
+
+; Values can be plain 1/0 from JSON.parse, strings from a hand-edited config,
+; or JSON.true/JSON.false ComValue objects from an earlier normalization.
+IsConfigEnabled(value, default := true) {
+    if (value = "")
+        return default
+    if (value = 0 || value = "0" || value = "false")
+        return false
+    if (value = JSON.false)
+        return false
+    return true
 }

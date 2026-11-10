@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace HideAnyWindowManager.Models;
 
 public sealed class Rule
@@ -6,6 +8,10 @@ public sealed class Rule
     public string Exe { get; set; } = "";
     public string Path { get; set; } = "";
     public string Name { get; set; } = "";
+
+    /// <summary>True if the service should hide this app. The AHK service writes
+    /// 1/0 instead of true/false, so accept both.</summary>
+    [JsonConverter(typeof(FlexibleBoolConverter))]
     public bool Enabled { get; set; } = true;
 
     /// <summary>Optional per-app toggle chord (e.g. "Ctrl+Alt+1"). Empty = no hotkey.</summary>

@@ -90,4 +90,42 @@ public class ConfigStoreTests
             File.Delete(path);
         }
     }
+
+    [Fact]
+    public async Task LoadsNumericBooleansWrittenByService()
+    {
+        // The AHK service serializes true/false as 1/0 because AutoHotkey has no
+        // boolean type. The manager must still show those rules (a hotkey toggle
+        // used to make the whole list look corrupt and empty).
+        var path = Path.Combine(Path.GetTempPath(), $"haw-numeric-{System.Guid.NewGuid():N}.json");
+        try
+        {
+            await File.WriteAllTextAsync(path, """
+                {
+                  "schemaVersion": 2,
+                  "serviceState": "running",
+                  "hotkeys": {
+                    "suspendAll": "Ctrl+Alt+H",
+                    "hideForeground": "Ctrl+Alt+Shift+H",
+                    "unhideLast": "Ctrl+Alt+Shift+U"
+                  },
+                  "rules": [
+                    { "id": "on", "exe": "on.exe", "name": "On", "enabled": 1, "hotkey": "Ctrl+Alt+1" },
+                    { "id": "off", "exe": "off.exe", "name": "Off", "enabled": 0, "hotkey": "Ctrl+Alt+2" }
+                  ]
+                }
+                """);
+
+            var loaded = await new ConfigStore(path).LoadAsync();
+
+            Assert.Equal(2, loaded.Rules.Count);
+            Assert.True(loaded.Rules[0].Enabled);
+            Assert.False(loaded.Rules[1].Enabled);
+            Assert.Equal("Ctrl+Alt+2", loaded.Rules[1].Hotkey);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
 }
