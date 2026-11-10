@@ -23,6 +23,7 @@ SetWinDelay(0)
 #Include config.ahk
 #Include registry.ahk
 #Include hider.ahk
+#Include audio.ahk
 #Include hotkeys.ahk
 
 ; ==========================================================================
@@ -265,6 +266,9 @@ OnServiceExit(*) {
     drained := RegistryDrain()
     for entry in drained
         RestoreWindowFromEntry(entry)
+    ; Guarantee nothing stays muted if some hidden entry was never restored
+    ; (e.g. a lost hidden.json record or a window destroyed while hidden).
+    AudioRestoreAll()
     ReleaseServiceMutex()
 }
 

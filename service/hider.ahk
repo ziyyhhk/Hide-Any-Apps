@@ -80,13 +80,39 @@ TryHideWindow(hwnd) {
         TaskbarAdd(hwnd)
         return Map("ok", false, "reason", "uiaccess-or-elevated-target")
     }
+
+    ; The window is hidden now — mute the app's audio sessions too, otherwise
+    ; a hidden game keeps playing sound. Restored on unhide.
+    AudioMuteForHwnd(hwnd)
     return Map("ok", true, "exStyle", exStyle)
+}
+
+; Restore audio sessions referenced by an array of Map("id", ..., "mute", ...)
+; records. Used by every path that unhides a window (rule toggled off, unhide
+; last, suspend/resume, service shutdown, crash recovery). Skips the restore
+; when another hidden window of the same process still needs the silence.
+RestoreAudioForEntry(entry, hwnd) {
+    global HiddenEntries
+    pid := 0
+    DllCall("GetWindowThreadProcessId", "Ptr", hwnd, "UInt*", &pid)
+    for e in HiddenEntries {
+        if (e["hwnd"] = hwnd)
+            continue
+        ePid := e.Has("pid") ? e["pid"] : 0
+        if (!ePid) {
+            try DllCall("GetWindowThreadProcessId", "Ptr", e["hwnd"], "UInt*", &ePid, "Ptr*", &etid)
+        }
+        if (ePid = pid && pid != 0)
+            return 0  ; the same game still has a hidden window — keep its audio muted
+    }
+    return AudioRestoreRecords(entry.Has("audio") ? entry["audio"] : [])
 }
 
 ; RestoreWindowFromEntry(entry) -> bool
 RestoreWindowFromEntry(entry) {
     global GWL_EXSTYLE
     hwnd := entry["hwnd"]
+    RestoreAudioForEntry(entry, hwnd)
     if !WinExist("ahk_id " . hwnd)
         return false
     DllCall("SetWindowLongPtr", "Ptr", hwnd, "Int", GWL_EXSTYLE, "Ptr", entry["exStyle"])

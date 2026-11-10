@@ -15,6 +15,7 @@
 #Include ..\config.ahk
 #Include ..\registry.ahk
 #Include ..\hider.ahk
+#Include ..\audio.ahk
 #Include ..\hotkeys.ahk
 
 global results := []
@@ -72,6 +73,15 @@ RunTests() {
     Check("default config has hotkeys map"
         , Type(cfg["hotkeys"]) = "Map"
         && cfg["hotkeys"]["suspendAll"] = "Ctrl+Alt+H")
+
+    ; --- Audio (WASAPI): read-only checks; mute is never exercised headlessly ---
+    ; Enumerates real sessions on this machine — read-only, safe to run while
+    ; the service is live.
+    sessions := CollectAudioSessions("")
+    Check("audio enumeration returns an array", Type(sessions) = "Array")
+    Check("audio sessions expose volume objects", !sessions.Length || sessions[1].Has("vol"))
+    for s in sessions
+        AudioRelease(s["vol"])
 
     ; --- PrepareConfigForJson: rule.enabled must be a real JSON boolean ---
     ; The manager's System.Text.Json rejects 0/1 for bool; a service write with

@@ -8,8 +8,15 @@ GetHiddenJsonPath() {
 }
 
 RegistryAdd(hwnd, exStyle, ruleId, title) {
-    global HiddenEntries
-    HiddenEntries.Push(Map("hwnd", hwnd, "exStyle", exStyle, "ruleId", ruleId, "title", title))
+    global HiddenEntries, PendingAudioForHwnd
+    pid := 0
+    DllCall("GetWindowThreadProcessId", "Ptr", hwnd, "UInt*", &pid)
+    entry := Map("hwnd", hwnd, "exStyle", exStyle, "ruleId", ruleId, "title", title, "pid", pid, "audio", [])
+    if PendingAudioForHwnd.Has(hwnd) {
+        entry["audio"] := PendingAudioForHwnd[hwnd]
+        PendingAudioForHwnd.Delete(hwnd)
+    }
+    HiddenEntries.Push(entry)
     SaveHiddenJson()
 }
 

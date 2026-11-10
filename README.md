@@ -160,7 +160,12 @@ Hotkey toggles persist immediately. Both processes serialize config writes
 through a named semaphore, and the manager watches the file so its list updates
 when a hotkey changes a rule.
 
-### Performance notes
+- **Audio**: hiding a window also mutes that app's per-app audio sessions (the
+  same ones in the volume mixer), so a hidden game stays silent. Unhide restores
+  the exact previous mute states, even after a crash (records are stored in
+  `hidden.json`).
+
+## Performance notes
 
 - Window events are filtered to top-level windows before any process lookup.
 - exe lookups are cached per HWND and revalidated by PID.
