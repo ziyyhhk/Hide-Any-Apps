@@ -136,6 +136,30 @@ if (Test-Path $binRel) {
 $managerMb = [math]::Round((Get-ChildItem $managerOut -Recurse -File | Measure-Object Length -Sum).Sum / 1MB)
 Write-Host "       -> $managerOut (${managerMb} MB)"
 
+# WinAppSDK 2.0 self-contained ships AI/ML workloads (onnxruntime, DirectML,
+# Microsoft.Windows.AI.*), Widgets projections, WebView2 and dead debug
+# assemblies. This app uses none of them. Verified by launch test: removing
+# these breaks nothing.
+# NOT pruned (empirically required to start the app, exit 0xC000027B):
+#   mscordaccore_amd64_*.dll, Microsoft.DiaSymReader.Native.amd64.dll
+#   (ReadyToRun embeds inlined stack frames referencing the DAC).
+#   Microsoft.InteractiveExperiences.Projection.dll (WinUI startup probes it).
+$prunePatterns = @(
+    'onnxruntime*','DirectML*','NPUDetect*','Microsoft.Windows.AI.*',
+    'Microsoft.Graphics.Imaging*','Microsoft.Windows.Workloads.*','workloads*.json',
+    'Microsoft.Web.WebView2*','WebView2Loader.dll',
+    'Microsoft.Windows.Widgets*','createdump.exe','mscordbi.dll','mscordaccore.dll'
+)
+$pruned = 0L
+foreach ($pattern in $prunePatterns) {
+    Get-ChildItem $managerOut -Recurse -File -Filter $pattern -ErrorAction SilentlyContinue | ForEach-Object {
+        $pruned += $_.Length
+        Remove-Item $_.FullName -Force
+    }
+}
+$managerMbAfter = [math]::Round((Get-ChildItem $managerOut -Recurse -File | Measure-Object Length -Sum).Sum / 1MB)
+Write-Host "       Pruned $([math]::Round($pruned / 1MB, 1)) MB -> ${managerMbAfter} MB"
+
 # ---------------------------------------------------------------------------
 # 3/3 Installer
 # ---------------------------------------------------------------------------

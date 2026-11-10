@@ -5,7 +5,7 @@
 ; normal HKCU Run entry is enough for "start with Windows".
 
 #define MyAppName      "Hide Any Apps"
-#define MyAppVersion   "1.0.0"
+#define MyAppVersion   "1.0.1"
 #define MyAppPublisher "ziyyhhk"
 #define MyAppURL       "https://github.com/ziyyhhk/Hide-Any-Apps"
 #define MyAppExeName   "HideAnyWindowManager.exe"
@@ -23,7 +23,7 @@ AppPublisher={#MyAppPublisher}
 AppPublisherURL={#MyAppURL}
 AppSupportURL={#MyAppURL}/issues
 AppUpdatesURL={#MyAppURL}/releases
-VersionInfoVersion=1.0.0.0
+VersionInfoVersion=1.0.1.0
 DefaultDirName={localappdata}\Programs\Hide Any Apps
 DefaultGroupName={#MyAppName}
 DisableProgramGroupPage=yes

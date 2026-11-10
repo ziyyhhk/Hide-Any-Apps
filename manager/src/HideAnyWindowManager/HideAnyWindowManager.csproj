@@ -8,9 +8,9 @@
     <Product>Hide Any Apps</Product>
     <AssemblyTitle>Hide Any Apps</AssemblyTitle>
     <Description>Auto-hide any normal Windows app. Background service plus manager.</Description>
-    <Version>1.0.0</Version>
-    <FileVersion>1.0.0.0</FileVersion>
-    <InformationalVersion>1.0.0</InformationalVersion>
+    <Version>1.0.1</Version>
+    <FileVersion>1.0.1.0</FileVersion>
+    <InformationalVersion>1.0.1</InformationalVersion>
     <!-- x64 + ARM64 only. x86 is dropped: SetWindowLongPtrW does not exist on 32-bit
          (it's a macro over SetWindowLongW), so WindowMinSize would silently no-op there.
          The solution only ever builds x64 anyway. -->
@@ -35,6 +35,10 @@
   </ItemGroup>
 
   <ItemGroup>
+    <TrimmerRootAssembly Include="System.Drawing.Common" />
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.28000.1839" />
     <PackageReference Include="Microsoft.WindowsAppSDK" Version="2.0.1" />
     <PackageReference Include="System.Drawing.Common" Version="8.0.0" />
@@ -42,11 +46,12 @@
 
   <!-- Publish Properties -->
   <PropertyGroup>
+    <!-- Trimming would strip the managed framework, but this build SDK does not
+         ship ILLink.Tasks, so it would silently do nothing. JSON still uses
+         source generation (ConfigJsonContext) — zero cost, trim-ready later.
+         The big win is delete-list pruning in dist/build-release.ps1. -->
+    <PublishTrimmed>false</PublishTrimmed>
     <PublishReadyToRun Condition="'$(Configuration)' == 'Debug'">False</PublishReadyToRun>
     <PublishReadyToRun Condition="'$(Configuration)' != 'Debug'">True</PublishReadyToRun>
-    <!-- Trimming disabled — ConfigStore uses reflection-based JSON which trim
-         analyzer flags (IL2026). Keeping types intact avoids runtime breakage.
-         Size impact at our scale is ~10–20 MB on top of ~125 MB total: worth it. -->
-    <PublishTrimmed>false</PublishTrimmed>
   </PropertyGroup>
 </Project>

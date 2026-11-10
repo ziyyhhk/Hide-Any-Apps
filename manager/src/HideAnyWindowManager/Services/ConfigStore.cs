@@ -16,6 +16,9 @@ public sealed class ConfigStore
 
     private static readonly JsonSerializerOptions JsonOpts = new()
     {
+        // Source-generated metadata (see ConfigJsonContext) so trimming can strip
+        // the reflection-based serializer.
+        TypeInfoResolver = ConfigJsonContext.Default,
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
         WriteIndented = true,
         DefaultIgnoreCondition = JsonIgnoreCondition.Never,
