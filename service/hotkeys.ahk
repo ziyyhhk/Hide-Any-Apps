@@ -181,6 +181,7 @@ OnUnhideLastHotkey(*) {
             if rule.Has("id") && rule["id"] = ruleId
                 && rule.Has("enabled") && rule["enabled"] {
                 rule["enabled"] := false
+                RebuildEnabledRuleIndex(CurrentConfig)
                 ServiceLog("INFO", "hotkey: disabled ruleId=" . ruleId
                     . " as part of unhide-last")
                 PersistConfig()
@@ -213,6 +214,7 @@ ToggleRuleById(ruleId) {
 
     enabled := rule.Has("enabled") && rule["enabled"]
     rule["enabled"] := !enabled
+    RebuildEnabledRuleIndex(CurrentConfig)
 
     if (rule["enabled"]) {
         ServiceLog("INFO", "hotkey: ruleId=" . ruleId . " enabled")

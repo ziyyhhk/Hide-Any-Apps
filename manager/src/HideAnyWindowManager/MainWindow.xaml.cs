@@ -23,6 +23,10 @@ public sealed partial class MainWindow : Window
 
     private FileSystemWatcher? _configWatcher;
     private DateTime _suppressExternalReloadUntilUtc = DateTime.MinValue;
+    private bool? _lastEffectiveStatus;
+
+    private readonly SolidColorBrush _runningBrush = new(Color.FromArgb(0xFF, 0x2E, 0x9C, 0x4F));
+    private readonly SolidColorBrush _stoppedBrush = new(Color.FromArgb(0xFF, 0x88, 0x88, 0x88));
 
     public MainWindow()
     {
@@ -183,12 +187,13 @@ public sealed partial class MainWindow : Window
         // this timer, so poll just the cheap mutex check.
         bool mutex = App.ServiceController.IsServiceRunning();
         bool effective = mutex && ViewModel.ServiceState == "running";
+        if (_lastEffectiveStatus == effective)
+            return;
 
+        _lastEffectiveStatus = effective;
         ViewModel.IsServiceRunning = effective;
 
-        StatusDot.Fill = new SolidColorBrush(effective
-            ? Color.FromArgb(0xFF, 0x2E, 0x9C, 0x4F)
-            : Color.FromArgb(0xFF, 0x88, 0x88, 0x88));
+        StatusDot.Fill = effective ? _runningBrush : _stoppedBrush;
         StatusLabel.Text = ViewModel.StatusText;
         ServiceButton.Content = ViewModel.ServiceButtonText;
     }
@@ -470,7 +475,7 @@ public sealed partial class MainWindow : Window
                 var dlg = new ContentDialog
                 {
                     Title = "Couldn't start service",
-                    Content = $"One of these wasn't found:\n\n  AHK UIA exe:  {ahkUia}\n  Service script:  {script}\n\nVerify both paths exist.",
+                    Content = $"One of these wasn't found:\n\n  Service exe:  {ahkUia}\n  Service script:  {script}\n\nVerify both paths exist.",
                     CloseButtonText = "OK",
                     XamlRoot = ((FrameworkElement)Content).XamlRoot,
                     RequestedTheme = RootGrid.RequestedTheme,

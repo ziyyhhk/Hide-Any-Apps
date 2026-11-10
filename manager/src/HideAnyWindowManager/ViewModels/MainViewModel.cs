@@ -19,6 +19,7 @@ public sealed class MainViewModel : ObservableObject
         get => _isServiceRunning;
         set
         {
+            if (_isServiceRunning == value) return;
             SetField(ref _isServiceRunning, value);
             Raise(nameof(StatusText));
             Raise(nameof(ServiceButtonText));

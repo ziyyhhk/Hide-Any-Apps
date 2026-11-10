@@ -1,6 +1,10 @@
 #Requires AutoHotkey v2.0
 #SingleInstance Force
 DetectHiddenWindows true
+; AHK sleeps 100 ms after every WinHide/WinShow by default. A startup scan or a
+; Stop that restores N windows would otherwise take N x 100 ms. The operations
+; we use are synchronous, so there is nothing to wait for.
+SetWinDelay(0)
 
 ; No tray icon. AutoHotkey's default tray menu ("Suspend Hotkeys" / "Pause Script" / "Exit")
 ; would expose a second, inconsistent control surface: the service now owns global
@@ -44,6 +48,12 @@ global hServiceMutex := 0
 ; lookup so a recycled HWND can never return a stale exe name.
 global ExeCache := Map()
 
+; exe -> first enabled rule. Rebuilt whenever rules change, so startup scans
+; and window-event callbacks never linearly scan every rule (and can skip the
+; process lookup entirely when nothing is enabled).
+global EnabledRuleByExe := Map()
+global EnabledRuleCount := 0
+
 ; ==========================================================================
 ; Bootstrap
 ; ==========================================================================
@@ -63,6 +73,7 @@ if IsStoppedConfig(CurrentConfig) {
 }
 
 LastConfigMTime := FileExist(GetConfigPath()) ? FileGetTime(GetConfigPath(), "M") : ""
+RebuildEnabledRuleIndex(CurrentConfig)
 RegisterWindowHook()
 RegisterHotkeys(CurrentConfig)
 SetTimer(CheckConfigForChanges, 1000)
@@ -142,24 +153,45 @@ PruneDeadState() {
     PruneHiddenEntries()
 }
 
+; Rebuild the enabled-rule lookup after any config mutation. First enabled rule
+; for an exe wins, matching the old linear scan.
+RebuildEnabledRuleIndex(cfg) {
+    global EnabledRuleByExe, EnabledRuleCount
+    EnabledRuleByExe := Map()
+    if (cfg = "" || !cfg.Has("rules") || !(cfg["rules"] is Array)) {
+        EnabledRuleCount := 0
+        return
+    }
+    for rule in cfg["rules"] {
+        if !(rule is Map)
+            continue
+        if !rule.Has("enabled") || !rule["enabled"]
+            continue
+        if !rule.Has("exe") || rule["exe"] = ""
+            continue
+        exe := StrLower(rule["exe"])
+        if !EnabledRuleByExe.Has(exe)
+            EnabledRuleByExe[exe] := rule
+    }
+    EnabledRuleCount := EnabledRuleByExe.Count
+}
+
 FindEnabledRuleForHwnd(cfg, hwnd) {
+    global EnabledRuleByExe
     exe := GetExeBasenameForHwnd(hwnd)
     if (exe = "")
         return ""
     ; Defensive denylist: never hide our own manager, even if a rule for it exists.
     if (exe = "hideanywindowmanager.exe")
         return ""
-    for rule in cfg["rules"] {
-        if (rule.Has("enabled") && rule["enabled"]
-            && rule.Has("exe") && StrLower(rule["exe"]) = exe)
-            return rule
-    }
+    if EnabledRuleByExe.Has(exe)
+        return EnabledRuleByExe[exe]
     return ""
 }
 
 StartupScan(cfg) {
-    global HidingSuspended
-    if HidingSuspended
+    global HidingSuspended, EnabledRuleCount
+    if (HidingSuspended || EnabledRuleCount = 0)
         return
     DetectHiddenWindows false
     ids := WinGetList()
@@ -241,13 +273,13 @@ OnServiceExit(*) {
 ; ==========================================================================
 
 WinEventCallback(hHook, event, hwnd, idObject, idChild, thread, time) {
-    global CurrentConfig, OBJID_WINDOW, HidingSuspended
+    global CurrentConfig, OBJID_WINDOW, HidingSuspended, EnabledRuleCount
 
     if (idObject != OBJID_WINDOW || idChild != 0)
         return
     if (hwnd = 0)
         return
-    if (CurrentConfig = "" || HidingSuspended)
+    if (CurrentConfig = "" || HidingSuspended || EnabledRuleCount = 0)
         return
 
     ; Top-level windows only. EVENT_OBJECT_SHOW also fires for tooltips, IME
@@ -316,6 +348,7 @@ ApplyNewConfig(oldCfg, newCfg) {
 
     ; Global and per-rule hotkeys live in config.json, so rebind on every
     ; applied change. Registration is cheap (RegisterHotKey, no hook).
+    RebuildEnabledRuleIndex(newCfg)
     RegisterHotkeys(newCfg)
 
     oldEnabled := Map()
