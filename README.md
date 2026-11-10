@@ -1,159 +1,180 @@
 <div align="center">
-  <img src="dist/icon.png" alt="Hide Any Window" width="128">
+  <img src="dist/icon.png" alt="Hide Any Apps" width="128">
 
-  # Hide Any Window
+  # Hide Any Apps
 
-  Auto-hide any Windows app, even Magnifier. No taskbar icon. No Alt-Tab entry. No fuss.
+  Auto-hide any normal Windows app. No taskbar icon. No Alt-Tab entry.
 
-  [![Latest release](https://img.shields.io/github/v/release/Maxaubert/Hide-Any-Window?style=flat-square)](https://github.com/Maxaubert/Hide-Any-Window/releases/latest)
-  [![Windows](https://img.shields.io/badge/Windows-10%20%7C%2011-0078D4?style=flat-square)](https://github.com/Maxaubert/Hide-Any-Window/releases/latest)
+  [![Latest release](https://img.shields.io/github/v/release/ziyyhhk/Hide-Any-Apps?style=flat-square)](https://github.com/ziyyhhk/Hide-Any-Apps/releases/latest)
+  [![Windows](https://img.shields.io/badge/Windows-10%20%7C%2011-0078D4?style=flat-square)](https://github.com/ziyyhhk/Hide-Any-Apps/releases/latest)
+  [![License: MIT](https://img.shields.io/badge/License-MIT-green?style=flat-square)](LICENSE)
 </div>
 
 ---
 
-<table align="center">
-  <tr>
-    <td align="center"><img src="docs/screenshots/Main.png" alt="" width="420"></td>
-    <td align="center"><img src="docs/screenshots/AddProcess.png" alt="" width="420"></td>
-  </tr>
-  <tr>
-    <td align="center" colspan="2"><img src="docs/screenshots/StartStopService.png" alt="" width="420"></td>
-  </tr>
-</table>
-
 ## What it does
 
-Pick an app. Toggle "hide" on. From then on, every time a window of that app appears it vanishes the moment it shows: gone from the screen, gone from the taskbar, gone from Alt-Tab. Toggle off and the window comes back.
+Pick an app. Toggle **Hide** on. Every time a window of that app appears it
+vanishes immediately: gone from the screen, the taskbar, and Alt-Tab. Toggle
+off and the window comes back.
 
-Works on apps that resist normal "minimize to tray" tools, including Windows Magnifier.
+The manager is only a control panel. The actual hiding is done by a small
+background service, so closing the manager does **not** stop hiding. The
+service can also start automatically when you sign in to Windows.
 
-## Install
+## Download and install
 
-1. Download HideAnyWindow-Setup.exe below.
-2. Run the installer
-3. (Optional) Run service on startup
-4. Done.
+1. Download **`HideAnyApps-Setup.exe`** from
+   [Releases](https://github.com/ziyyhhk/Hide-Any-Apps/releases/latest).
+2. Run it. It installs **per user** into
+   `%LOCALAPPDATA%\Programs\Hide Any Apps` by default. You can change the
+   folder on the install page.
+3. Read and accept the terms shown by the installer.
+4. Keep **Start the background service when I sign in** checked if you want
+   hiding to survive a reboot. You can change this later in Settings.
+5. Open **Hide Any Apps** from the Start menu.
 
-> You may need to unblock the installer the first time. It is not signed by a trusted publisher, so SmartScreen and some antivirus tools flag it as unknown. Right-click the file > Properties > tick **Unblock** at the bottom, or click **More info** > **Run anyway** when SmartScreen appears.
+No administrator rights are needed. Nothing is installed system-wide.
 
-## Use
+> The installer is not code-signed, so SmartScreen may show an "unknown
+> publisher" warning the first time. Click **More info → Run anyway**, or
+> right-click the file → Properties → **Unblock**.
 
-1. Open **Hide Any Window** from the Start menu.
-2. Click **Start service** in the footer.
-3. Click **+ Add**, pick the app you want to hide, click **Add**.
-4. Toggle the row on.
+## Quick start
 
-Open the app and it disappears. Toggle off when you want it back.
+1. Open **Hide Any Apps**.
+2. Click **+ Add**, choose an app, and click **Add**.
+3. Toggle the new row on.
+4. Open the app. Its window disappears.
+5. Toggle the row off, or press its hotkey, when you want it back.
+
+You can now close the manager. The service keeps running in the background
+with no tray icon and no window.
 
 ## Hotkeys
 
-Everything works from the keyboard once the service is running — the manager
-window does not need to stay open.
-
 | Action | Default |
 |---|---|
-| Hide/show **all** managed apps (pauses auto-hide) | `Ctrl+Alt+H` |
+| Hide/show **all** managed apps (pause auto-hide) | `Ctrl+Alt+H` |
 | Hide the **active** window right now | `Ctrl+Alt+Shift+H` |
 | Unhide the **last** hidden window | `Ctrl+Alt+Shift+U` |
 | Toggle one app on/off | `Ctrl+Alt+1` … `Ctrl+Alt+9` |
 
 - Per-app bindings are assigned automatically when you add an app. Click the
   shortcut shown in the row to record a different one, or to clear it.
-- **Unhide last** also switches off the rule that hid that window, so it does
-  not vanish again the next time it shows a window.
-- Change the three global shortcuts in **Settings → Hotkeys** (click a shortcut,
-  press the new combination, `Backspace` clears it).
-- Hotkeys are registered by the service with `RegisterHotKey`, so they cost no
-  CPU while idle and work even when the manager is closed.
+- **Unhide last** also switches off the rule that hid that window so it does
+  not vanish again the next time it opens.
+- Change the three global shortcuts in **Settings → Hotkeys** (click a
+  shortcut, press the new combination, `Backspace` clears it).
+- Hotkeys are registered by the service with `RegisterHotKey`. They cost no
+  CPU while idle and work while the manager is closed.
+- Avoid plain shortcuts such as `Ctrl+F` for a global binding: Windows will
+  send that key to Hide Any Apps instead of the focused app.
+
+## Background and startup
+
+- The service is a separate 1.3 MB executable with the script embedded.
+- Closing the manager leaves the service running. Only the service stays
+  resident, at roughly **11–15 MB of RAM** and effectively **0% idle CPU**.
+- The installer can add a per-user startup entry (`HKCU\...\Run`) so the
+  service starts at sign-in. The same switch is in **Settings → Start service
+  at logon**. No Task Scheduler task and no UAC prompt are involved.
+- Pressing **Stop** in the manager writes `serviceState = stopped`, and the
+  service restores every hidden window and exits. It will stay stopped at the
+  next logon until you press **Start** again.
 
 ## Settings
 
-The gear icon in the toolbar opens **Settings**:
+The gear icon opens:
 
-- **Start at logon**: when on, the service auto-launches when you sign in to Windows. Off by default.
-- **Hotkeys**: rebind or clear the three global shortcuts.
+- **Start service at logon** — per-user background startup.
+- **Hotkeys** — rebind or clear the three global shortcuts.
+
+## Windows compatibility
+
+- Windows 10 (1809 or newer) and Windows 11, x64.
+- Hides normal desktop windows, including apps that resist "minimize to tray"
+  tools.
+- The service runs at normal user integrity. Windows that belong to an
+  elevated process, UIAccess software (for example Magnifier), or protected
+  system surfaces cannot be hidden without the older administrator/UIAccess
+  build. Hiding them is intentionally not attempted.
+- Some games with kernel anti-cheat may block any external window styling.
+  That is a limitation of the game, not a bug in Hide Any Apps.
+
+## Privacy
+
+No telemetry, analytics, or network access. Settings, logs, and hidden-window
+recovery data stay in `%APPDATA%\HideAnyWindow` on your PC.
 
 ## Uninstall
 
-Settings > Apps > Hide Any Window > Uninstall. Removes the manager, the service, the trusted certificate, and the optional logon task.
+Settings → Apps → Installed apps → **Hide Any Apps** → Uninstall, or use the
+Start menu uninstall shortcut. The uninstaller asks the service to restore all
+hidden windows and exit first. Your settings in `%APPDATA%\HideAnyWindow` are
+kept so a reinstall keeps your rules; delete that folder to remove them.
 
 ## Build from source
 
-For developers.
+Requirements: Windows 10/11, the .NET 8 SDK, AutoHotkey v2, and Inno Setup 6.
+The release script uses local tools under `.tools\`:
 
-Requirements:
-
-- Windows 10 or 11
-- [.NET 8 SDK](https://dotnet.microsoft.com/download/dotnet/8.0)
-- [AutoHotkey v2](https://www.autohotkey.com/) (only needed to build the service exe)
-- [Inno Setup 6](https://jrsoftware.org/isdl.php) (only needed to build the installer)
-- Windows 10/11 SDK, for `signtool.exe` (only needed to sign the build)
-
-```powershell
-git clone https://github.com/Maxaubert/Hide-Any-Window.git
-cd Hide-Any-Window
-dotnet build manager\HideAnyWindowManager.sln
+```
+.tools\dotnet\dotnet.exe
+.tools\ahk\AutoHotkey64.exe
+.tools\ahk2exe\Ahk2Exe.exe
+.tools\innosetup\ISCC.exe
 ```
 
-To produce the installer:
+Build the manager and tests:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File dist\build.ps1
+.tools\dotnet\dotnet.exe test manager\test\HideAnyWindowManager.Tests\HideAnyWindowManager.Tests.csproj
 ```
 
-Output: `dist\HideAnyWindow-Setup.exe`.
+Build the installer:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File dist\build-release.ps1
+```
+
+Output: `dist\HideAnyApps-Setup.exe`.
+
+The script compiles the service with `Ahk2Exe`, publishes the manager
+self-contained for `win-x64`, restores the XAML resources that WinAppSDK
+sometimes drops, and runs Inno Setup. Incremental builds reuse the NuGet cache
+and take well under a minute after the first publish.
 
 ## How it works
 
-Two pieces, one shared config file.
+Two processes share one config file:
 
-- **Service** (`service/`): a compiled AutoHotkey v2 script with a UIAccess manifest. Watches for windows of configured apps via `SetWinEventHook`, hides matches with `WinHide` plus `ITaskbarList::DeleteTab`. Registers the global hotkeys. Holds a named mutex so the manager can detect liveness.
-- **Manager** (`manager/`): a WinUI 3 / .NET 8 desktop app. Reads and writes `%APPDATA%\HideAnyWindow\config.json`. Talks to the service through that file plus the named mutex.
+- **Service** (`service/`): compiled AutoHotkey v2. Watches `EVENT_OBJECT_SHOW`
+  with `SetWinEventHook`, filters to top-level windows, hides matches with
+  `WinHide` plus `ITaskbarList::DeleteTab`, and owns the global hotkeys. A
+  named mutex lets the manager detect whether it is alive.
+- **Manager** (`manager/`): WinUI 3 / .NET 8 control panel. Reads and writes
+  `%APPDATA%\HideAnyWindow\config.json`; it does not need to stay open.
 
-Hotkey toggles are the one case where the service writes `config.json` (so a
-rule you disable from the keyboard stays disabled after a restart). Both
-processes serialize writes through a named semaphore, and the manager watches
-the file so its UI reflects changes made by a hotkey.
+Hotkey toggles persist immediately. Both processes serialize config writes
+through a named semaphore, and the manager watches the file so its list updates
+when a hotkey changes a rule.
 
-### Performance
+### Performance notes
 
-- The window-event callback only looks at top-level windows, so tooltips, IME
-  windows and menus never pay for a process lookup.
-- Process → exe lookups are cached per HWND and revalidated by PID, so a burst
-  of window events no longer means a burst of `OpenProcess` calls.
-- State for closed windows is pruned every 30 seconds, keeping memory flat
-  during long sessions.
-- Hotkeys use `RegisterHotKey` (no keyboard hook), so they do not add
-  per-keystroke CPU.
-- Closing the manager leaves only the small AHK service resident; the manager's
-  WinUI memory is released until you open it again.
+- Window events are filtered to top-level windows before any process lookup.
+- exe lookups are cached per HWND and revalidated by PID.
+- Closed-window state is pruned every 30 seconds.
+- Hotkeys use `RegisterHotKey`, not a keyboard hook.
+- The config file is checked once per second with a cheap mtime comparison.
+- Closing the manager releases its WinUI memory; only the small service stays
+  resident.
 
-## Security note
+## Credits and license
 
-To hide windows of elevated and UIAccess apps (like Magnifier), the service runs with
-UIAccess and elevated privilege. To make that work without a UAC prompt on every logon:
-
-- The installer installs a **self-signed code-signing certificate** (`CN=HideAnyWindowDev`)
-  into your machine's certificate stores and removes it on uninstall. This lets Windows
-  treat the bundled service binary as trusted so it can elevate silently.
-- When **Start at logon** is enabled, a scheduled task launches the manager with the
-  highest privileges at sign-in.
-
-If you build from source, the cert is a throwaway dev certificate — do not redistribute a
-build signed with it. Because official releases are not signed by a recognised publisher,
-SmartScreen and some antivirus tools will flag the installer as unknown the first time.
-
-## Troubleshooting
-
-The service and manager write plain-text logs to `%APPDATA%\HideAnyWindow\`:
-
-- `service.log` — service activity. A window that won't hide is logged here as a `WARN`
-  line (usually the target is more elevated than the service can reach).
-- `manager.log` — manager activity (config saves, service start/stop).
-
-If a window stays hidden after you toggle a rule off or close the app, restart the service
-from the footer — on the next start it restores any windows still recorded in `hidden.json`.
-
-## License
-
-MIT — see [LICENSE](LICENSE).
+Hide Any Apps is a fork of
+[Hide Any Window](https://github.com/Maxaubert/Hide-Any-Window) by Max Aubert,
+modernized with configurable hotkeys, background startup, a per-user installer,
+and lower idle resource use. The original project and this fork are MIT
+licensed — see [LICENSE](LICENSE). AutoHotkey, .NET, and Windows App SDK remain
+under their own licenses.

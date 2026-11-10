@@ -4,7 +4,7 @@
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:vm="using:HideAnyWindowManager.ViewModels"
-    Title="Hide Any Window">
+    Title="Hide Any Apps">
     <Grid x:Name="RootGrid" Padding="0" Background="{ThemeResource WindowBackground}">
         <Grid.RowDefinitions>
             <RowDefinition Height="36"/>
@@ -15,7 +15,7 @@
 
         <!-- Custom title bar (drag region; Windows draws Min/Max/Close on top right) -->
         <Grid x:Name="AppTitleBar" Grid.Row="0" Background="Transparent" Padding="14,0,140,0">
-            <TextBlock Text="Hide Any Window" VerticalAlignment="Center" FontSize="12" Opacity="0.85"/>
+            <TextBlock Text="Hide Any Apps" VerticalAlignment="Center" FontSize="12" Opacity="0.85"/>
         </Grid>
 
         <!-- Toolbar -->

@@ -5,6 +5,12 @@
     <TargetFramework>net8.0-windows10.0.26100.0</TargetFramework>
     <TargetPlatformMinVersion>10.0.17763.0</TargetPlatformMinVersion>
     <RootNamespace>HideAnyWindowManager</RootNamespace>
+    <Product>Hide Any Apps</Product>
+    <AssemblyTitle>Hide Any Apps</AssemblyTitle>
+    <Description>Auto-hide any normal Windows app. Background service plus manager.</Description>
+    <Version>1.0.0</Version>
+    <FileVersion>1.0.0.0</FileVersion>
+    <InformationalVersion>1.0.0</InformationalVersion>
     <!-- x64 + ARM64 only. x86 is dropped: SetWindowLongPtrW does not exist on 32-bit
          (it's a macro over SetWindowLongW), so WindowMinSize would silently no-op there.
          The solution only ever builds x64 anyway. -->

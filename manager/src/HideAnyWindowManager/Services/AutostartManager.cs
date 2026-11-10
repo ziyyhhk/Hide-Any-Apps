@@ -1,106 +1,83 @@
-using System.Diagnostics;
+using System;
+using System.IO;
+using System.Runtime.Versioning;
+using Microsoft.Win32;
 
 namespace HideAnyWindowManager.Services;
 
+/// <summary>
+/// Per-user "start with Windows" support. The service is a normal (asInvoker)
+/// executable, so a HKCU Run entry is enough — no Task Scheduler, no elevation,
+/// and no UAC prompt at logon. The installer writes the same value.
+/// </summary>
+[SupportedOSPlatform("windows")]
 public sealed class AutostartManager
 {
-    private const string TaskName = "HideAnyWindowService";
+    public const string RunValueName = "HideAnyAppsService";
     public const string StartServiceArg = "--start-service";
+    public const string StopServiceArg = "--stop-service";
 
-    /// <summary>True if a Task Scheduler at-logon task for the service exists.</summary>
+    private const string RunKeyPath = @"Software\Microsoft\Windows\CurrentVersion\Run";
+
+    /// <summary>True if the per-user Run entry exists.</summary>
     public bool IsEnabled()
     {
         try
         {
-            var psi = new ProcessStartInfo
-            {
-                FileName = "schtasks.exe",
-                UseShellExecute = false,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                CreateNoWindow = true,
-            };
-            psi.ArgumentList.Add("/Query");
-            psi.ArgumentList.Add("/TN");
-            psi.ArgumentList.Add(TaskName);
-            var proc = Process.Start(psi);
-            if (proc == null) return false;
-            proc.WaitForExit(5000);
-            return proc.ExitCode == 0;
+            using var key = Registry.CurrentUser.OpenSubKey(RunKeyPath, writable: false);
+            return key?.GetValue(RunValueName) is string value && value.Length > 0;
         }
         catch { return false; }
     }
 
-    /// <summary>Creates an at-logon task that launches the manager with --start-service.
-    /// The manager (requireAdministrator, no uiAccess) launches cleanly via CreateProcess
-    /// with the user's elevated token; it then ShellExecutes the uiAccess service exe,
-    /// which AppInfo silently auto-elevates. Pointing the task directly at the uiAccess
-    /// service exe fails with ERROR_ELEVATION_REQUIRED (740) because CreateProcess cannot
-    /// launch uiAccess binaries — only ShellExecute can. Overwrites any existing task.</summary>
+    /// <summary>Creates/overwrites the HKCU Run entry.</summary>
     public bool TryEnable()
     {
         try
         {
-            var managerExe = ManagerExePath();
-            if (string.IsNullOrEmpty(managerExe)) return false;
-            // schtasks /TR expects ONE argument: the full command line. Quote the path so
-            // the spawned process sees it as a single arg.
-            var taskRun = $"\"{managerExe}\" {StartServiceArg}";
-            var psi = new ProcessStartInfo
-            {
-                FileName = "schtasks.exe",
-                UseShellExecute = false,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                CreateNoWindow = true,
-            };
-            psi.ArgumentList.Add("/Create");
-            psi.ArgumentList.Add("/TN");
-            psi.ArgumentList.Add(TaskName);
-            psi.ArgumentList.Add("/SC");
-            psi.ArgumentList.Add("ONLOGON");
-            psi.ArgumentList.Add("/RL");
-            psi.ArgumentList.Add("HIGHEST");
-            psi.ArgumentList.Add("/TR");
-            psi.ArgumentList.Add(taskRun);
-            psi.ArgumentList.Add("/F");
-            var proc = Process.Start(psi);
-            if (proc == null) return false;
-            proc.WaitForExit(10000);
-            return proc.ExitCode == 0;
+            var command = BuildCommand();
+            if (command == null) return false;
+
+            using var key = Registry.CurrentUser.CreateSubKey(RunKeyPath, writable: true);
+            if (key == null) return false;
+            key.SetValue(RunValueName, command, RegistryValueKind.String);
+            return true;
         }
         catch { return false; }
     }
 
-    private static string ManagerExePath()
-    {
-        try { return Process.GetCurrentProcess().MainModule?.FileName ?? ""; }
-        catch { return ""; }
-    }
-
-    /// <summary>Removes the at-logon task. Idempotent (returns true if already absent).</summary>
+    /// <summary>Removes the Run entry. Idempotent.</summary>
     public bool TryDisable()
     {
         try
         {
-            var psi = new ProcessStartInfo
-            {
-                FileName = "schtasks.exe",
-                UseShellExecute = false,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                CreateNoWindow = true,
-            };
-            psi.ArgumentList.Add("/Delete");
-            psi.ArgumentList.Add("/TN");
-            psi.ArgumentList.Add(TaskName);
-            psi.ArgumentList.Add("/F");
-            var proc = Process.Start(psi);
-            if (proc == null) return true;
-            proc.WaitForExit(5000);
-            // schtasks returns 0 on success and 1 if the task didn't exist — both fine for our purposes.
+            using var key = Registry.CurrentUser.OpenSubKey(RunKeyPath, writable: true);
+            key?.DeleteValue(RunValueName, throwOnMissingValue: false);
             return true;
         }
         catch { return false; }
+    }
+
+    /// <summary>
+    /// Prefer the service exe sitting next to the manager. The manager
+    /// --start-service fallback keeps development builds (where the service
+    /// lives under tooling/ is not next to the exe) working.
+    /// </summary>
+    private static string? BuildCommand()
+    {
+        var serviceExe = Path.Combine(AppContext.BaseDirectory, "HideAnyWindowService.exe");
+        if (File.Exists(serviceExe))
+            return $"\"{serviceExe}\"";
+
+        var managerExe = ManagerExePath();
+        if (string.IsNullOrEmpty(managerExe))
+            return null;
+        return $"\"{managerExe}\" {StartServiceArg}";
+    }
+
+    private static string ManagerExePath()
+    {
+        try { return System.Diagnostics.Process.GetCurrentProcess().MainModule?.FileName ?? ""; }
+        catch { return ""; }
     }
 }

@@ -1,0 +1,50 @@
+HIDE ANY APPS - END USER TERMS
+
+Please read these terms before installing. By clicking "I accept the agreement"
+and installing Hide Any Apps, you agree to the following.
+
+1. WHAT THIS SOFTWARE DOES
+   Hide Any Apps hides windows on your own Windows PC. It changes window
+   visibility and extended window styles for processes you choose. It does not
+   modify the files of the apps it hides.
+
+2. LICENSE
+   Hide Any Apps is free and open-source software under the MIT License. The
+   full license text is installed as LICENSE.txt and is also available in the
+   source repository. You may use, copy, modify, and redistribute it under the
+   terms of that license.
+
+3. NO WARRANTY
+   THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+   IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+   FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+   AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+   LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+   FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
+   IN THE SOFTWARE.
+
+4. YOUR RESPONSIBILITY
+   Use Hide Any Apps only on computers and accounts you own or are authorized
+   to manage. Do not use it to hide monitoring, security, or other software in
+   ways that violate the law, a workplace policy, or another person's rights.
+   Some windows (for example, elevated administrator windows or protected
+   system surfaces) cannot be hidden without additional privileges, and the
+   software does not attempt to bypass those protections.
+
+5. PRIVACY
+   Hide Any Apps does not collect telemetry, analytics, or personal data. It
+   stores your settings and hidden-window recovery data locally in
+   %APPDATA%\HideAnyWindow. Nothing is sent to the developer. The installer and
+   app do not require an internet connection.
+
+6. THIRD-PARTY COMPONENTS
+   The package includes AutoHotkey (GPLv2), the .NET runtime, and Microsoft
+   Windows App SDK components. Their licenses are included with the installed
+   files or in the source repository. The MIT license above applies to the
+   Hide Any Apps source code, not to those components.
+
+7. UNINSTALL
+   You can uninstall from Settings > Apps > Installed apps, or from the Start
+   menu uninstall shortcut. Uninstalling removes the app and its autostart
+   entry. Your local settings in %APPDATA%\HideAnyWindow are left in place so a
+   reinstall keeps your rules; delete that folder manually to remove them.

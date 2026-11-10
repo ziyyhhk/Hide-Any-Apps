@@ -38,15 +38,15 @@ public sealed class ServiceController
         }
     }
 
-    /// <summary>Whether the at-logon task should launch the service. "stopped" means the user
+    /// <summary>Whether the at-logon entry should launch the service. "stopped" means the user
     /// pressed Stop, which now terminates the process — relaunching it at logon would resurrect
     /// a service they explicitly stopped. Any other value (including a missing or unreadable
     /// config) starts, so a config problem never silently disables hiding.</summary>
     public static bool ShouldStartAtLogon(Config? cfg)
         => !string.Equals(cfg?.ServiceState, "stopped", StringComparison.OrdinalIgnoreCase);
 
-    /// <summary>Launches the AHK service via AutoHotkey64_UIA.exe. The UIA-signed AHK
-    /// auto-elevates without a UAC prompt and gives the script UIAccess privileges.</summary>
+    /// <summary>Launches the compiled service (HideAnyWindowService.exe) sitting next to the
+    /// manager. The service runs asInvoker; it does not need UIAccess for normal windows.</summary>
     /// <returns>true if launch was attempted; false if the AHK install or script wasn't found.</returns>
     public bool TryStartService(string? scriptPath = null, string? ahkUiaPath = null)
     {
