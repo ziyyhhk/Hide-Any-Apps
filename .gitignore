@@ -27,7 +27,9 @@ manager/.vs/
 
 # Distribution build artifacts
 dist/staging/
+dist/portable/
 dist/HideAnyWindow-Setup.zip
+dist/HideAnyWindow-portable.zip
 dist/.cert.pfx
 
 # Internal dev docs (specs/plans for the LLM agent workflow)
