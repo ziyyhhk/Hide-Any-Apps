@@ -1,0 +1,29 @@
+name: build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  manager:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      # Restores package references (WinAppSDK, etc.) and builds the solution.
+      # The build sets TreatWarningsAsErrors, so CI fails on warnings too.
+      - name: Restore
+        run: dotnet restore manager\HideAnyWindowManager.sln -p:RestoreSources=https://api.nuget.org/v3/index.json --nologo --verbosity minimal
+
+      - name: Build
+        run: dotnet build manager\HideAnyWindowManager.sln -c Release --no-restore --nologo
+
+      - name: Test
+        run: dotnet test manager\test\HideAnyWindowManager.Tests\HideAnyWindowManager.Tests.csproj -c Release --no-restore --nologo

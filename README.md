@@ -36,9 +36,10 @@ service can also start automatically when you sign in to Windows.
 
 No administrator rights are needed. Nothing is installed system-wide.
 
-> The installer is not code-signed, so SmartScreen may show an "unknown
-> publisher" warning the first time. Click **More info → Run anyway**, or
-> right-click the file → Properties → **Unblock**.
+> Releases built before Authenticode signing was in place are unsigned, so
+> SmartScreen may show an "unknown publisher" warning the first time. Click
+> **More info → Run anyway**, or right-click the file → Properties → **Unblock**.
+> See [Virus false positives](#virus-false-positives) below.
 
 ## Quick start
 
@@ -101,6 +102,40 @@ The gear icon opens:
   build. Hiding them is intentionally not attempted.
 - Some games with kernel anti-cheat may block any external window styling.
   That is a limitation of the game, not a bug in Hide Any Apps.
+
+## Virus false positives
+
+Some antivirus products flag this app, usually for one of these reasons:
+
+- the binary hides windows and removes taskbar buttons (that is exactly what the
+  app does), which looks like stalkerware to behavioral heuristics;
+- the service is compiled from AutoHotkey, a scripting engine frequently abused
+  by malware authors, so heuristic engines treat the runtime with suspicion;
+- the installer may not be code-signed yet, so there is no publisher reputation.
+
+There is **no obfuscation, packing, or anti-analysis trickery** in this project —
+the source is right here and the build is reproducible from it.
+
+If your antivirus blocks it:
+
+1. Check the file hash against `SHA256SUMS.txt` on the
+   [latest release](https://github.com/ziyyhhk/Hide-Any-Apps/releases/latest)
+   to be sure you have the genuine file.
+2. Restore the file from quarantine and add the install folder
+   (`%LOCALAPPDATA%\Programs\Hide Any Apps`) as an exclusion in your
+   antivirus, if you trust it.
+3. **Report the false positive** to your antivirus vendor — this is the single
+   most effective thing users can do, and it actually works within days. See
+   [docs/FALSE-POSITIVE.md](docs/FALSE-POSITIVE.md) for ready-to-paste report
+   text:
+   - Microsoft Defender: <https://www.microsoft.com/en-us/wdsi/filesubmission>
+     (choose *Software developer* → *Incorrectly detected as malware/unwanted*).
+   - Malwarebytes: <https://forums.malwarebytes.com/forum/61-false-positives/>
+   - Other vendors have their own submission forms; include the SHA-256 from
+     `SHA256SUMS.txt` and a link to this repository.
+4. Signing via the [SignPath Foundation](https://signpath.org/) (free code
+   signing for open-source projects) is in progress; signed releases inherit a
+   publisher reputation that matters more than any per-vendor report.
 
 ## Privacy
 

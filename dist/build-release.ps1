@@ -4,7 +4,19 @@
 # Outputs:
 #   dist\staging\manager\...          self-contained manager
 #   dist\staging\service\...          compiled AHK service
-#   dist\HideAnyApps-Setup.exe        per-user installer (unsigned)
+#   dist\HideAnyApps-Setup.exe        per-user installer
+#
+# Stages (used by the release workflow to sign each artifact before the next
+# stage runs; local runs default to 'all'):
+#   -Stage service    compile the AHK service into dist\staging\service
+#   -Stage manager    publish the manager into dist\staging\manager
+#   -Stage installer  run Inno Setup (requires the previous stages)
+#   -Stage all        all three, cleaning dist\staging first (default)
+
+param(
+    [ValidateSet('all', 'service', 'manager', 'installer')]
+    [string] $Stage = 'all'
+)
 
 $ErrorActionPreference = 'Stop'
 
@@ -31,11 +43,10 @@ if (-not $ahkBase -and (Test-Path 'C:\Program Files\AutoHotkey\v2\AutoHotkey64.e
 if (-not $iscc -and (Test-Path 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe')) {
     $iscc = 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe'
 }
-$icon = Join-Path $repoRoot 'dist\icon.ico'
-
-foreach ($tool in @($dotnet, $ahk2Exe, $ahkBase, $iscc)) {
-    if (-not $tool) { throw "Required build tool not found. See README requirements." }
+if (-not $iscc -and (Test-Path 'C:\Program Files (x86)\Inno Setup 7\ISCC.exe')) {
+    $iscc = 'C:\Program Files (x86)\Inno Setup 7\ISCC.exe'
 }
+$icon = Join-Path $repoRoot 'dist\icon.ico'
 
 # ---------------------------------------------------------------------------
 # Ahk2Exe wrapper: dismiss the benign "Base file appears to be invalid" warning
@@ -86,90 +97,102 @@ function Invoke-Ahk2Exe {
 }
 
 # ---------------------------------------------------------------------------
-# Clean staging
+# Clean staging (full builds only; split-stage builds must preserve artifacts
+# the caller may have replaced, e.g. the signed service exe).
 # ---------------------------------------------------------------------------
-if (Test-Path $staging) { Remove-Item $staging -Recurse -Force }
+if ($Stage -eq 'all') {
+    if (Test-Path $staging) { Remove-Item $staging -Recurse -Force }
+}
 New-Item -ItemType Directory -Path "$staging\service" -Force | Out-Null
 
 # ---------------------------------------------------------------------------
 # 1/3 Compile service
 # ---------------------------------------------------------------------------
-Write-Host '[1/3] Compiling service...'
-$serviceScript = Join-Path $repoRoot 'service\main.ahk'
-$serviceExe    = Join-Path $staging 'service\HideAnyWindowService.exe'
-Invoke-Ahk2Exe -InScript $serviceScript -OutExe $serviceExe -BaseExe $ahkBase
-$serviceKb = [math]::Round((Get-Item $serviceExe).Length / 1KB)
-Write-Host "       -> $serviceExe (${serviceKb} KB)"
+if ($Stage -eq 'all' -or $Stage -eq 'service') {
+    if (-not $ahk2Exe -or -not $ahkBase) { throw "Required build tool not found (ahk2exe/ahk). See README requirements." }
+    Write-Host '[1/3] Compiling service...'
+    $serviceScript = Join-Path $repoRoot 'service\main.ahk'
+    $serviceExe    = Join-Path $staging 'service\HideAnyWindowService.exe'
+    Invoke-Ahk2Exe -InScript $serviceScript -OutExe $serviceExe -BaseExe $ahkBase
+    $serviceKb = [math]::Round((Get-Item $serviceExe).Length / 1KB)
+    Write-Host "       -> $serviceExe (${serviceKb} KB)"
+}
 
 # ---------------------------------------------------------------------------
 # 2/3 Publish manager (Release, self-contained)
 # ---------------------------------------------------------------------------
-Write-Host '[2/3] Publishing manager...'
-$managerCsproj = Join-Path $repoRoot 'manager\src\HideAnyWindowManager\HideAnyWindowManager.csproj'
-$managerOut    = Join-Path $staging 'manager'
-$assets        = Join-Path $repoRoot 'manager\src\HideAnyWindowManager\obj\project.assets.json'
-if (-not (Test-Path $assets)) {
-    Write-Host '       First run: restoring NuGet packages...'
-    & $dotnet restore $managerCsproj -r win-x64 -p:PublishReadyToRun=true `
-        -p:RestoreSources=https://api.nuget.org/v3/index.json --nologo --verbosity minimal
-    if ($LASTEXITCODE -ne 0) { throw "dotnet restore failed with exit $LASTEXITCODE" }
-}
-& $dotnet publish $managerCsproj -c Release -r win-x64 -o $managerOut --nologo --verbosity minimal --no-restore
-if ($LASTEXITCODE -ne 0) { throw "dotnet publish failed with exit $LASTEXITCODE" }
-
-$managerExe = Join-Path $managerOut 'HideAnyWindowManager.exe'
-if (-not (Test-Path $managerExe)) { throw "Manager exe not produced at $managerExe" }
-
-# WinAppSDK self-contained publish sometimes drops compiled XAML (.xbf) and the
-# resource index (.pri). Without them the app crashes on the first XAML page.
-$binRel = Join-Path $repoRoot 'manager\src\HideAnyWindowManager\bin\Release\net8.0-windows10.0.26100.0\win-x64'
-if (Test-Path $binRel) {
-    $copied = 0
-    Get-ChildItem $binRel -Filter '*.xbf' -ErrorAction SilentlyContinue | ForEach-Object {
-        Copy-Item $_.FullName -Destination $managerOut -Force; $copied++
+if ($Stage -eq 'all' -or $Stage -eq 'manager') {
+    if (-not $dotnet) { throw "dotnet not found (.tools\dotnet\dotnet.exe). See README requirements." }
+    Write-Host '[2/3] Publishing manager...'
+    $managerCsproj = Join-Path $repoRoot 'manager\src\HideAnyWindowManager\HideAnyWindowManager.csproj'
+    $managerOut    = Join-Path $staging 'manager'
+    $assets        = Join-Path $repoRoot 'manager\src\HideAnyWindowManager\obj\project.assets.json'
+    if (-not (Test-Path $assets)) {
+        Write-Host '       First run: restoring NuGet packages...'
+        & $dotnet restore $managerCsproj -r win-x64 -p:PublishReadyToRun=true `
+            -p:RestoreSources=https://api.nuget.org/v3/index.json --nologo --verbosity minimal
+        if ($LASTEXITCODE -ne 0) { throw "dotnet restore failed with exit $LASTEXITCODE" }
     }
-    Get-ChildItem $binRel -Filter 'HideAnyWindowManager.pri' -ErrorAction SilentlyContinue | ForEach-Object {
-        Copy-Item $_.FullName -Destination $managerOut -Force; $copied++
-    }
-    Write-Host "       Restored $copied XAML/PRI artifact(s)"
-}
-$managerMb = [math]::Round((Get-ChildItem $managerOut -Recurse -File | Measure-Object Length -Sum).Sum / 1MB)
-Write-Host "       -> $managerOut (${managerMb} MB)"
+    & $dotnet publish $managerCsproj -c Release -r win-x64 -o $managerOut --nologo --verbosity minimal --no-restore
+    if ($LASTEXITCODE -ne 0) { throw "dotnet publish failed with exit $LASTEXITCODE" }
 
-# WinAppSDK 2.0 self-contained ships AI/ML workloads (onnxruntime, DirectML,
-# Microsoft.Windows.AI.*), Widgets projections, WebView2 and dead debug
-# assemblies. This app uses none of them. Verified by launch test: removing
-# these breaks nothing.
-# NOT pruned (empirically required to start the app, exit 0xC000027B):
-#   mscordaccore_amd64_*.dll, Microsoft.DiaSymReader.Native.amd64.dll
-#   (ReadyToRun embeds inlined stack frames referencing the DAC).
-#   Microsoft.InteractiveExperiences.Projection.dll (WinUI startup probes it).
-$prunePatterns = @(
-    'onnxruntime*','DirectML*','NPUDetect*','Microsoft.Windows.AI.*',
-    'Microsoft.Graphics.Imaging*','Microsoft.Windows.Workloads.*','workloads*.json',
-    'Microsoft.Web.WebView2*','WebView2Loader.dll',
-    'Microsoft.Windows.Widgets*','createdump.exe','mscordbi.dll','mscordaccore.dll'
-)
-$pruned = 0L
-foreach ($pattern in $prunePatterns) {
-    Get-ChildItem $managerOut -Recurse -File -Filter $pattern -ErrorAction SilentlyContinue | ForEach-Object {
-        $pruned += $_.Length
-        Remove-Item $_.FullName -Force
+    $managerExe = Join-Path $managerOut 'HideAnyWindowManager.exe'
+    if (-not (Test-Path $managerExe)) { throw "Manager exe not produced at $managerExe" }
+
+    # WinAppSDK self-contained publish sometimes drops compiled XAML (.xbf) and the
+    # resource index (.pri). Without them the app crashes on the first XAML page.
+    $binRel = Join-Path $repoRoot 'manager\src\HideAnyWindowManager\bin\Release\net8.0-windows10.0.26100.0\win-x64'
+    if (Test-Path $binRel) {
+        $copied = 0
+        Get-ChildItem $binRel -Filter '*.xbf' -ErrorAction SilentlyContinue | ForEach-Object {
+            Copy-Item $_.FullName -Destination $managerOut -Force; $copied++
+        }
+        Get-ChildItem $binRel -Filter 'HideAnyWindowManager.pri' -ErrorAction SilentlyContinue | ForEach-Object {
+            Copy-Item $_.FullName -Destination $managerOut -Force; $copied++
+        }
+        Write-Host "       Restored $copied XAML/PRI artifact(s)"
     }
+    $managerMb = [math]::Round((Get-ChildItem $managerOut -Recurse -File | Measure-Object Length -Sum).Sum / 1MB)
+    Write-Host "       -> $managerOut (${managerMb} MB)"
+
+    # WinAppSDK 2.0 self-contained ships AI/ML workloads (onnxruntime, DirectML,
+    # Microsoft.Windows.AI.*), Widgets projections, WebView2 and dead debug
+    # assemblies. This app uses none of them. Verified by launch test: removing
+    # these breaks nothing.
+    # NOT pruned (empirically required to start the app, exit 0xC000027B):
+    #   mscordaccore_amd64_*.dll, Microsoft.DiaSymReader.Native.amd64.dll
+    #   (ReadyToRun embeds inlined stack frames referencing the DAC).
+    #   Microsoft.InteractiveExperiences.Projection.dll (WinUI startup probes it).
+    $prunePatterns = @(
+        'onnxruntime*','DirectML*','NPUDetect*','Microsoft.Windows.AI.*',
+        'Microsoft.Graphics.Imaging*','Microsoft.Windows.Workloads.*','workloads*.json',
+        'Microsoft.Web.WebView2*','WebView2Loader.dll',
+        'Microsoft.Windows.Widgets*','createdump.exe','mscordbi.dll','mscordaccore.dll'
+    )
+    $pruned = 0L
+    foreach ($pattern in $prunePatterns) {
+        Get-ChildItem $managerOut -Recurse -File -Filter $pattern -ErrorAction SilentlyContinue | ForEach-Object {
+            $pruned += $_.Length
+            Remove-Item $_.FullName -Force
+        }
+    }
+    $managerMbAfter = [math]::Round((Get-ChildItem $managerOut -Recurse -File | Measure-Object Length -Sum).Sum / 1MB)
+    Write-Host "       Pruned $([math]::Round($pruned / 1MB, 1)) MB -> ${managerMbAfter} MB"
 }
-$managerMbAfter = [math]::Round((Get-ChildItem $managerOut -Recurse -File | Measure-Object Length -Sum).Sum / 1MB)
-Write-Host "       Pruned $([math]::Round($pruned / 1MB, 1)) MB -> ${managerMbAfter} MB"
 
 # ---------------------------------------------------------------------------
 # 3/3 Installer
 # ---------------------------------------------------------------------------
-Write-Host '[3/3] Building installer...'
-$iss = Join-Path $repoRoot 'dist\installer\HideAnyAppsSetup.iss'
-& $iscc /Q $iss
-if ($LASTEXITCODE -ne 0) { throw "ISCC failed with exit $LASTEXITCODE" }
+if ($Stage -eq 'all' -or $Stage -eq 'installer') {
+    if (-not $iscc) { throw "Inno Setup ISCC.exe not found. See README requirements." }
+    Write-Host '[3/3] Building installer...'
+    $iss = Join-Path $repoRoot 'dist\installer\HideAnyAppsSetup.iss'
+    & $iscc /Q $iss
+    if ($LASTEXITCODE -ne 0) { throw "ISCC failed with exit $LASTEXITCODE" }
 
-$setupExe = Join-Path $repoRoot 'dist\HideAnyApps-Setup.exe'
-if (-not (Test-Path $setupExe)) { throw "Setup exe not produced at $setupExe" }
-$setupMb = [math]::Round((Get-Item $setupExe).Length / 1MB, 1)
-Write-Host ''
-Write-Host "Done: $setupExe ($setupMb MB)" -ForegroundColor Green
+    $setupExe = Join-Path $repoRoot 'dist\HideAnyApps-Setup.exe'
+    if (-not (Test-Path $setupExe)) { throw "Setup exe not produced at $setupExe" }
+    $setupMb = [math]::Round((Get-Item $setupExe).Length / 1MB, 1)
+    Write-Host ""
+    Write-Host "Done: $setupExe ($setupMb MB)" -ForegroundColor Green
+}

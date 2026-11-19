@@ -1,0 +1,177 @@
+name: release
+
+# Builds the installer for a pushed tag (v*) and publishes a GitHub release.
+#
+# Signing: disabled by default. To enable SignPath Foundation signing (free for
+# open-source projects), set these repository variables and secret, then push a
+# tag — see docs/signpath-setup.md.
+#   vars.SIGNPATH_ENABLED                'true' to enable signing
+#   vars.SIGNPATH_ORG_ID                 SignPath organization id
+#   vars.SIGNPATH_PROJECT_SLUG           SignPath project slug
+#   vars.SIGNPATH_SIGNING_POLICY_SLUG    signing policy slug
+#   vars.SIGNPATH_PE_CONFIGURATION_SLUG  artifact configuration slug (PE files)
+#   secrets.SIGNPATH_API_TOKEN           API token with submitter permissions
+#
+# When SignPath is enabled, the three binaries are signed in order — service exe,
+# manager exe, then the installer — because Inno Setup must package the signed
+# binaries, and SmartScreen evaluates the signed installer.
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write   # create the GitHub release
+  actions: read     # the SignPath action reads workflow job details
+
+jobs:
+  build-and-release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Install portable build tools (AHK v2, Ahk2Exe, Inno Setup 6)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $repo = "$env:GITHUB_WORKSPACE"
+          New-Item -ItemType Directory -Force "$repo\.tools\ahk", "$repo\.tools\ahk2exe", "$repo\.tools\innosetup" | Out-Null
+          Invoke-WebRequest -Uri "https://github.com/AutoHotkey/AutoHotkey/releases/download/v2.0.31/AutoHotkey_2.0.31.zip" -OutFile "$env:RUNNER_TEMP\ahk.zip"
+          Expand-Archive -Force "$env:RUNNER_TEMP\ahk.zip" "$repo\.tools\ahk"
+          Invoke-WebRequest -Uri "https://github.com/AutoHotkey/Ahk2Exe/releases/download/Ahk2Exe1.1.37.02a2/Ahk2Exe1.1.37.02a2.zip" -OutFile "$env:RUNNER_TEMP\ahk2exe.zip"
+          Expand-Archive -Force "$env:RUNNER_TEMP\ahk2exe.zip" "$repo\.tools\ahk2exe"
+          Invoke-WebRequest -Uri "https://github.com/jrsoftware/issrc/releases/download/is-6_7_4/innosetup-6.7.4.exe" -OutFile "$env:RUNNER_TEMP\is6.exe"
+          Start-Process "$env:RUNNER_TEMP\is6.exe" -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NOICONS','/CURRENTUSER',"/DIR=`"$repo\.tools\innosetup`"" -Wait
+
+      # ---- stage 1: service ----
+      - name: Build service
+        shell: pwsh
+        run: powershell -ExecutionPolicy Bypass -File dist\build-release.ps1 -Stage service
+
+      - name: Upload service exe for signing
+        if: vars.SIGNPATH_ENABLED == 'true'
+        id: upload-service
+        uses: actions/upload-artifact@v4
+        with:
+          name: service-exe
+          path: dist\staging\service\HideAnyWindowService.exe
+          archive: false
+
+      - name: Sign service exe (SignPath)
+        if: vars.SIGNPATH_ENABLED == 'true'
+        uses: signpath/github-action-submit-signing-request@v3
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORG_ID }}
+          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG }}
+          signing-policy-slug: ${{ vars.SIGNPATH_SIGNING_POLICY_SLUG }}
+          artifact-configuration-slug: ${{ vars.SIGNPATH_PE_CONFIGURATION_SLUG }}
+          github-artifact-id: ${{ steps.upload-service.outputs.artifact-id }}
+          wait-for-completion: true
+          output-artifact-directory: signed-service
+          skip-decompress: true
+
+      - name: Replace service exe with the signed one
+        if: vars.SIGNPATH_ENABLED == 'true'
+        shell: pwsh
+        run: |
+          $signed = Get-ChildItem signed-service -Recurse -Filter 'HideAnyWindowService.exe' | Select-Object -First 1
+          if (-not $signed) { throw 'Signed service exe not found in signed-service/' }
+          Copy-Item $signed.FullName dist\staging\service\HideAnyWindowService.exe -Force
+
+      # ---- stage 2: manager ----
+      - name: Build manager
+        shell: pwsh
+        run: powershell -ExecutionPolicy Bypass -File dist\build-release.ps1 -Stage manager
+
+      - name: Upload manager exe for signing
+        if: vars.SIGNPATH_ENABLED == 'true'
+        id: upload-manager
+        uses: actions/upload-artifact@v4
+        with:
+          name: manager-exe
+          path: dist\staging\manager\HideAnyWindowManager.exe
+          archive: false
+
+      - name: Sign manager exe (SignPath)
+        if: vars.SIGNPATH_ENABLED == 'true'
+        uses: signpath/github-action-submit-signing-request@v3
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORG_ID }}
+          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG }}
+          signing-policy-slug: ${{ vars.SIGNPATH_SIGNING_POLICY_SLUG }}
+          artifact-configuration-slug: ${{ vars.SIGNPATH_PE_CONFIGURATION_SLUG }}
+          github-artifact-id: ${{ steps.upload-manager.outputs.artifact-id }}
+          wait-for-completion: true
+          output-artifact-directory: signed-manager
+          skip-decompress: true
+
+      - name: Replace manager exe with the signed one
+        if: vars.SIGNPATH_ENABLED == 'true'
+        shell: pwsh
+        run: |
+          $signed = Get-ChildItem signed-manager -Recurse -Filter 'HideAnyWindowManager.exe' | Select-Object -First 1
+          if (-not $signed) { throw 'Signed manager exe not found in signed-manager/' }
+          Copy-Item $signed.FullName dist\staging\manager\HideAnyWindowManager.exe -Force
+
+      # ---- stage 3: installer ----
+      - name: Build installer
+        shell: pwsh
+        run: powershell -ExecutionPolicy Bypass -File dist\build-release.ps1 -Stage installer
+
+      - name: Upload installer for signing
+        if: vars.SIGNPATH_ENABLED == 'true'
+        id: upload-installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: hideanyapps-setup
+          path: dist\HideAnyApps-Setup.exe
+          archive: false
+
+      - name: Sign installer (SignPath)
+        if: vars.SIGNPATH_ENABLED == 'true'
+        uses: signpath/github-action-submit-signing-request@v3
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORG_ID }}
+          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG }}
+          signing-policy-slug: ${{ vars.SIGNPATH_SIGNING_POLICY_SLUG }}
+          artifact-configuration-slug: ${{ vars.SIGNPATH_PE_CONFIGURATION_SLUG }}
+          github-artifact-id: ${{ steps.upload-installer.outputs.artifact-id }}
+          wait-for-completion: true
+          output-artifact-directory: signed-installer
+          skip-decompress: true
+
+      - name: Replace installer with the signed one
+        if: vars.SIGNPATH_ENABLED == 'true'
+        shell: pwsh
+        run: |
+          $signed = Get-ChildItem signed-installer -Recurse -Filter 'HideAnyApps-Setup.exe' | Select-Object -First 1
+          if (-not $signed) { throw 'Signed installer not found in signed-installer/' }
+          Copy-Item $signed.FullName dist\HideAnyApps-Setup.exe -Force
+
+      - name: Generate SHA256SUMS.txt
+        shell: pwsh
+        run: |
+          $hash = (Get-FileHash dist\HideAnyApps-Setup.exe -Algorithm SHA256).Hash.ToLower()
+          "$hash  HideAnyApps-Setup.exe" | Out-File SHA256SUMS.txt -Encoding ascii
+          Write-Host "$hash  HideAnyApps-Setup.exe"
+
+      - name: Create GitHub release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tag = "$env:GITHUB_REF_NAME"
+          gh release create $tag `
+            dist\HideAnyApps-Setup.exe `
+            SHA256SUMS.txt `
+            --title "Hide Any Apps $tag" `
+            --generate-notes
